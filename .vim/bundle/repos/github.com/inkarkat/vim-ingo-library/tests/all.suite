@@ -1,0 +1,10 @@
+compat/
+digest/
+list/lcs/
+list/pattern/
+list/sequence/
+lnum/
+regexp/split/
+subs/BraceCreation/
+subs/BraceExpansion/
+subst/expr/
