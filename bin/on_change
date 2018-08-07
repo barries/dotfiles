@@ -1,0 +1,996 @@
+#!/usr/bin/env perl
+
+sub eval_in_empty_lexical_context {
+    return eval $_[0];
+}
+
+use warnings;
+use strict;
+
+use File::Basename qw(basename fileparse);
+use File::Find;
+use File::Temp qw(tempfile);
+use File::Path qw(mkpath);
+use Getopt::Long qw(:config require_order); # require_order: stop options on first non-option, which is a command name
+use IPC::Open3;
+use List::Util qw(min max sum);
+use Symbol qw(gensym);
+use Term::ReadKey;
+use Time::HiRes qw( sleep );
+
+use constant {
+    MIN_NUM_SKIPPED        =>  3, # Don't hide chunks <= this number
+    NUM_LINES_BEFORE_CLEAR =>  0, # Number of lines to be captured before clear()ing
+    MIN_READKEY_TIMEOUT    =>  0.01, # 0.01: Be very responsive when poll_terminal_size()
+    MAX_READKEY_TIMEOUT    =>  0.1,  # 0.1: Once user stops changing things, reduce CPU%
+};
+
+use constant ERROR_SEARCH_PATTERN => "^error|\\berror:|failure|failed|segmentation fault|SEGFAULT/i";
+
+my $prog_name = basename $0;
+
+sub usage {
+    my ($exit_code) = @_;
+
+    warn "Usage: $prog_name ...options... ...command...\n";
+
+    exit shift;
+}
+
+sub help {
+    print <<HERE_DOC;
+
+$prog_name ...options... -c command
+$prog_name ...options... <command_string>  # Will launch "bash -c <command_string>"
+$prog_name ...options... ...command...
+
+Options:
+
+    -c, --command <command_line>    Spawn bash -c <command_line>.
+
+    -l <log_file>                   Log to <log_file> (defaults to ~/tmp/on_change/on_change.log)
+
+    -x, --exit                      Exit once command succeeds
+
+    -w, --watch <path>              Watch <path> for changes. If path is a dir,
+                                    watch all files and dirs in it. Can specify
+                                    multiple times for multiple <path>s.
+                                    Overrides ON_CHANGE_WATCH.
+
+
+    -R                              Strip escape codes (i.e. decolorize). This
+                                    is inspired by less's -R. This can also be
+                                    typed inside the tool to toggle colorization
+                                    on and off.
+
+    ?, --help                       (this help text)
+
+Environment Variables:
+
+    ON_CHANGE_WATCH=<paths>         A semicolon separated list of paths to
+                                    watch if no -w options are supplied on the
+                                    command line.
+HERE_DOC
+
+    exit 0;
+}
+
+my @cmd;
+
+GetOptions(
+    "c|command=s"   => sub {
+        die "multiple -$_[0] not allowed\n" if @cmd;
+        @cmd = ($_[1]);
+    },
+    "h|?|help"            => \&help,
+    "l|log-file=s"        => \(my $log_file_opt = "$ENV{HOME}/tmp/on_change/on_change.log"),
+    "x|exit"              => \my $exit_opt,
+    "R|RAW-CONTROL-CHARS" => \my $RAW_opt,
+    "w|watch=s"           => \my @watch_paths,
+) or usage(1);
+
+if (@ARGV) {
+    if (@cmd) {
+        die "-c and command line both provided";
+    }
+
+    @cmd = @ARGV;
+}
+
+@watch_paths = split /;/, $ENV{ON_CHANGE_WATCH} unless @watch_paths;
+@watch_paths = (".") unless @watch_paths;
+
+usage(1) unless @cmd;
+
+
+BEGIN {
+    $| = 1; # Autoflush
+}
+
+END {
+    ReadMode 0;
+}
+
+my $BLACK   = "\e[40m";
+my $BLACKFG = "\e[30m";
+my $BLUE    = "\e[44m";
+my $DK_BLUE = "\e[48;5;020m";
+my $CYAN    = "\e[46m";
+my $GREEN   = "\e[42m";
+my $DK_GREEN= "\e[48;5;10m";
+my $GREENFG = "\e[32m";
+my $RED     = "\e[41m";
+my $ORANGE  = "\e[48;5;172m";
+my $RESET   = "\e[0m";
+my $YELLOW  = "\e[43m";
+my $GREY    = "\e[47m";
+
+my $GREY_232 = "\e[48;5;232m";
+my $GREY_234 = "\e[48;5;234m";
+my $GREY_236 = "\e[48;5;236m";
+my $GREY_240 = "\e[48;5;240m";
+
+my $CURSOR_UP                = "\e[A";
+my $CURSOR_DOWN              = "\e[B";
+my $ERASE_IN_LINE_WHOLE_LINE = "\e[2K";
+
+my $SEARCH_MATCH_BG              = $YELLOW;
+my $SEARCH_CURRENT_MATCH_LINE_BG = $GREY_236;
+my $SEARCH_OTHER_MATCH_LINE_BG   = $GREY_234;
+
+my @all_lines;
+my $cmd_result;
+my $err_msg = "";
+my $filter;
+my $filter_enabled = 0;
+my $first_line_to_show = 0;
+my $first_col_to_show = 0;
+my @lines;
+my $nav_err_msg = "";
+our $search_dir;
+our $search_match_line;
+my $search_pattern;
+my $search_re;
+my ($term_cols, $term_lines) = GetTerminalSize();
+my $timeout = MAX_READKEY_TIMEOUT;
+my @unknown_keys;
+
+my %fingerprints;
+
+my @changed;
+
+sub fingerprints {
+    my $fingerprint = 0;
+
+    my %prev = %fingerprints;
+
+    # Integer overflow here is ok.
+
+    find {
+        no_chdir => 1,
+        wanted => sub {
+
+            if (m{/tmp/|/cg/|/CodeGen/|/\.|\A.[^/.]} && !-f $_) {
+                $File::Find::prune = 1;
+                return;
+            }
+
+            my $f = (stat($_))[7] + (stat(_))[9];
+            if (!$fingerprints{$_} || $fingerprints{$_} != $f) {
+                push @changed, $_ if $fingerprints{$_};
+                $fingerprints{$_} = $f;
+            }
+            $fingerprint += $f;
+        }
+    }, map glob, @_;
+
+    return $fingerprint;
+}
+
+sub cls {
+    if ($^O =~ /Win/) {
+        system "cls";
+    }
+    else {
+        print "\ec\e[3J"
+    }
+}
+
+# Term::ReadKey has a defect that causes it to silently convert to blocking
+# mode when a signal interrupts it. So don't enable WINCH reception, poll
+# screen size.
+#$SIG{WINCH} = \&redraw;
+
+sub poll_terminal_size() {
+    my ($c, $l) = GetTerminalSize();
+    if ($term_cols != $c || $term_lines != $l) {
+        ($term_cols, $term_lines) = ($c, $l);
+        return 1;
+    }
+    return 0;
+}
+
+sub num_visible_lines() {
+    return max(0, $term_lines - 1);
+}
+
+sub max_first_line_to_show() {
+    return max(0, @lines - num_visible_lines);
+}
+
+sub is_top_relative() {
+    return $first_line_to_show >= 0;
+}
+
+sub first_line_to_show() {
+    return is_top_relative
+        ? $first_line_to_show
+        : max(0, max_first_line_to_show + ($first_line_to_show + 1));
+}
+
+sub max_col() {
+    return max( 0, map( (length(deescape($_)) - 1), @lines) );
+}
+
+sub max_col_to_show() {
+    return max(0, max_col - $term_cols);
+}
+
+##############################################################################
+
+sub deescape {
+    my $msg = join "", @_;
+    $msg =~ s{\e.*?m}{}g;
+    return $msg;
+}
+
+##############################################################################
+# Filtering
+
+sub filter_out_lower_priority_errors { # TODO: make this configurable at runtime, build a library of filters
+    my ($lines) = @_;
+    my @result;
+
+    my $state = "discarding";
+    for (@$lines) {
+        if (/error:/) {
+            $state = !/clang.*(misc|performance|cppcoreguidelines|modernize)/ # Ignore less significant, not-likely-to-be-causal errors
+                ? "keeping"
+                : "discarding";
+        }
+
+        if ($state eq "keeping") {
+            push @result, $_;
+        }
+
+    }
+
+    return \@result;
+}
+
+sub filter_unique_errors { # TODO: make this configurable at runtime, build a library of filters
+    my ($lines) = @_;
+    my @result;
+
+    my %seen;
+
+    my @accum;
+
+    my $flush = sub {
+        if (@accum) {
+            my $key = join "", @accum;
+            $key =~ s/\[clang-tidy[^\]]+\]//g; # clang-tidy reports different rules unpredictably
+            if (!$seen{$key}++) {
+                push @result, @accum;
+            }
+            @accum = ();
+        }
+    };
+
+    my $state = "discarding";
+    for (@$lines) {
+        if (/ (error|note|warning): /) {
+            $flush->();
+            push @accum, $_;
+            next;
+        }
+
+        if (@accum) {
+            push @accum, $_;
+
+            if (/^[\h~]+^/) {
+                $flush->();
+            }
+        }
+        else {
+            push @result, $_;
+        }
+
+    }
+
+    push @result, @accum;
+
+    return \@result;
+}
+
+sub filter {
+    @lines = $filter_enabled
+        ? @{$filter->(\@all_lines)}
+        : @all_lines;
+}
+
+##############################################################################
+# Searching
+
+sub search {
+    my ($dir, $pattern, $start_line) = @_;
+
+    $dir //= $search_dir // 1;
+    $dir = $dir >= 0 ? 1 : -1;
+
+    if (ref $pattern ne "Regexp" && length $pattern) {
+        my $modifiers = "";
+        if ($pattern  =~ s{(?<!\\)[/?](\w*)\z}{}) {
+            $modifiers = $1;
+        }
+        $pattern = eval_in_empty_lexical_context "qr{$pattern}$modifiers"
+            or die $@;
+    }
+    $pattern //= $search_re;
+
+    die "not set: search pattern" unless $pattern;
+
+    my $re = ref $pattern ? $pattern : qr{$pattern};
+
+    $start_line //= (defined($search_match_line) && $search_match_line + $dir) // first_line_to_show;
+
+    my @indices = $dir >= 0
+        ?        ($start_line   .. $#lines, 0 .. $start_line-1)
+        : reverse($start_line+1 .. $#lines, 0 .. $start_line  );
+
+    for my $i (@indices) {
+        if (deescape($lines[$i]) =~ $re) {
+            if (!defined $search_match_line || $i < first_line_to_show) {
+                $first_line_to_show = $i;
+            }
+            elsif ($i >= (first_line_to_show() + num_visible_lines * 2)) {
+                $first_line_to_show = $i;
+            }
+            elsif ($i >= (first_line_to_show() + num_visible_lines())) {
+                $first_line_to_show = $i - (num_visible_lines - 1);
+            }
+            $first_line_to_show = min(max_first_line_to_show, first_line_to_show);
+            $search_match_line  = $i;
+            return ($dir, $re);
+        }
+    }
+
+    $search_match_line = undef;
+    die "not found: $re\n";
+}
+
+##############################################################################
+
+sub scroll {
+    my ($num_lines) = @_;
+
+    my $new_first_line_to_show = $first_line_to_show;
+    if ($num_lines <= 0) {
+        if (first_line_to_show == 0) {
+            # $nav_err_msg = "at first line";
+        }
+        elsif (is_top_relative) {
+            $new_first_line_to_show = max(0, first_line_to_show + $num_lines);
+        }
+        else {
+            $new_first_line_to_show = max(-max_first_line_to_show, $first_line_to_show + $num_lines);
+        }
+    }
+    else {
+        if (first_line_to_show >= max_first_line_to_show) {
+            # $nav_err_msg = "at last line";
+        }
+        elsif (is_top_relative) {
+            $new_first_line_to_show = min(max_first_line_to_show, first_line_to_show + $num_lines);
+        }
+        else {
+            $new_first_line_to_show = min(0, $first_line_to_show + $num_lines);
+        }
+    }
+
+    if ($first_line_to_show != $new_first_line_to_show) {
+        $first_line_to_show = $new_first_line_to_show;
+        redraw();
+    }
+}
+
+sub print_line {
+    my ($i) = @_;
+    my $line = $lines[$i];
+
+    chomp $line;
+
+    if (defined $search_match_line && length $search_re) {
+        if ($line =~ s{($search_re)}{$SEARCH_MATCH_BG$1$RESET}g) {
+            my $bg = ($i == $search_match_line)
+                ? $SEARCH_CURRENT_MATCH_LINE_BG
+                : $SEARCH_OTHER_MATCH_LINE_BG;
+
+            $line =~ s{\Q$RESET}{$bg}g;
+
+            my $l = length(deescape($line));
+            if ($l < $term_cols) {
+                $line .= " " x ($term_cols - $l);
+            }
+
+            $line = "$bg$line$RESET";
+        }
+    }
+
+    my $out_line = "";
+    if ($RAW_opt) {
+        $out_line = deescape($line);
+    }
+    else {
+        my $num_printable_chars = 0;
+        my $num_printed_chars = 0;
+        for my $chunk (split /(\e[^a-zA-Z]*(?:[a-zA-Z]|\z))/, $line) {
+            if ($chunk =~ /^\e/) {
+                $out_line .= $chunk;
+            }
+            else {
+                my $l = length $chunk;
+
+                my $b = $num_printable_chars;
+                my $e = $b + $l;
+
+                my $tb = $first_col_to_show;
+                my $te = $tb + $term_cols;
+
+                if ($b < $te && $e > $tb) {
+                    my $offset = $b < $tb
+                        ? $tb - $b
+                        : 0;
+
+                    my $vb = $b + $offset;
+                    my $ve = $e;
+                    if ($ve > $te) {
+                        $ve = $te;
+                    }
+
+                    my $length = $ve - $vb;
+                    if ($length > 0) {
+                        $out_line .= substr($chunk, $offset, $length);
+                        $num_printed_chars += $length;
+                    }
+                }
+
+                $num_printable_chars += $l;
+            }
+        }
+    }
+
+    print "$out_line\n";
+}
+
+sub print_visible_lines {
+    my $first = min(max(0, first_line_to_show), max_first_line_to_show);
+    my $last  = min($#lines, $first + num_visible_lines - 1);
+
+    print_line($_) for ($first..$last);
+}
+
+sub print_msg_bar {
+    my ($color, $char, $msg) = @_;
+
+    my $num = ($term_cols) - length deescape $msg;
+    print $color, $msg, $char x $num, $RESET;
+}
+
+sub save_line {
+    my ($line) = join "", @_;
+
+    push @all_lines, $line;
+    push @lines, $line; # Don't filter while building, it can be very useful to see the scroll
+
+    print $line;
+}
+
+sub save_cmd {
+    save_line "\$ ", join(" ", @cmd), "$RESET\n";
+}
+
+sub print_watching {
+    my $msg = "";
+
+    my $COLOR = $DK_BLUE;
+
+    my $l = first_line_to_show + 1;
+    my $c = $first_col_to_show + 1;
+    my $max_c = max_col;
+    my $location_desc = join("",
+        $l, "-", $l + (min(0+@lines, num_visible_lines) - 1),
+        " (of ",
+        0+@lines,
+        ")",
+        $filter_enabled
+            ? " ${GREEN}(filtered from " . (0+@all_lines) . ")$COLOR"
+            :(),
+        $c != 1
+            ? (
+                ", cols ",
+                $c, "-", $c + (min($max_c, $term_cols) - 1),
+                " (of ",
+                $max_c,
+                ")"
+            )
+            : (),
+    );
+
+    $msg .= $location_desc;
+
+    $msg .= ", watching " . join(" ", @watch_paths)
+        if @watch_paths != 1 || ($watch_paths[0] // "") ne ".";
+
+    if (length $search_pattern) {
+        $msg .= " " . (defined $search_match_line ? "" : $ORANGE) . $search_pattern . $COLOR;
+    }
+
+    my $em = join("; ", map "$RED$_$COLOR", grep length,
+        $cmd_result
+            ? "return code: " . (
+                ($cmd_result & 0xFF)
+                    ? ("(" . ($cmd_result >> 8) . "," . ($cmd_result & 0xFF) . ")")
+                    : ($cmd_result >> 8)
+            )
+            : (),
+        $err_msg,
+        $nav_err_msg,
+        @unknown_keys ? join( "", "unknown key(s): ",  @unknown_keys, " $GREEN(h for help)$COLOR") : ()
+    );
+
+    $msg .= " $em" if $em;
+
+    print_msg_bar($COLOR, " ", $msg);
+}
+
+sub redraw {
+    poll_terminal_size();
+    cls;
+    print_visible_lines;
+    print_watching;
+    $nav_err_msg = "";
+}
+
+sub readkey {
+    my ($timeout_) = @_;
+    $timeout_ //= $^O =~ /Win/ ? 1 : $timeout;
+
+    ReadMode(4);
+    return ReadKey($timeout_) // "";
+}
+
+sub run_cmd {
+    my $pid;
+
+    {
+        my $fh = gensym;
+
+        my $use_shell = (@cmd == 1);
+
+        $pid = open3(undef, $fh, $fh, $use_shell ? ("bash", "-c") : (), @cmd);
+
+        my %seen;
+
+        my $log_fh;
+
+        if (defined $log_file_opt) {
+            my ($fn, $dir, $ext) = fileparse($log_file_opt);
+            if (!-d $dir) {
+                mkpath $dir or die "$!: $dir\n";
+            }
+            open $log_fh, ">", $log_file_opt
+                or $err_msg = "$!: $log_file_opt\n";
+
+            print $log_fh "\$ ", join " ", @cmd;
+        }
+
+        while (<$fh>) {
+            print $log_fh $_ if $log_fh;
+            next if /SYSPROGS/ || (/iv_analyze_code: skipping/ && $seen{$_}++); # TODO: remove when no longer needed
+            save_line($_);
+        }
+    }
+
+    waitpid($pid, 0);
+
+    $cmd_result = $?;
+
+    return $cmd_result == 0;
+}
+
+sub waitforkey {
+    return readkey(0); # 0: getc(), blocking
+}
+
+sub ask {
+    print "\r", $BLUE, " " x $term_cols, "\r", @_;
+    ReadMode(0);
+    my $line = scalar <STDIN>;
+    chomp $line;
+    return $line;
+}
+
+################################################################################
+
+$filter = \&filter_out_lower_priority_errors;
+my $fingerprint = fingerprints(@watch_paths);
+
+my $is_first = 1;
+
+while (1) {
+    ReadMode 0;
+
+    my $search_match_number = 0;
+    if ($search_re) {
+        for my $l (@all_lines[0..($search_match_line || 0)]) {
+            ++$search_match_number if deescape($l) =~ $search_re;
+        }
+    }
+
+    @all_lines = ();
+    @lines = ();
+    $err_msg = "";
+    $nav_err_msg = "";
+
+    if ($is_first) {
+        print_msg_bar($DK_BLUE, " ", "");
+    }
+    print "\n";
+    $is_first = 0;
+
+    save_cmd;
+
+    my @most_recent_changed = splice(@changed);
+
+    my $ran_ok = run_cmd();
+    if ($ran_ok && $exit_opt) {
+        last;
+    }
+
+    filter();
+
+    if ($search_re) {
+        if ($ran_ok && $search_pattern eq "/" . ERROR_SEARCH_PATTERN) {
+            $search_re = undef;
+            $search_pattern = undef;
+        }
+        else {
+            $search_match_line = undef;
+            if (!eval {
+                local $search_dir;
+                search for (1..$search_match_number);
+                1;
+            }) {
+                chomp $@;
+                $search_match_line = undef;
+            }
+        }
+    }
+    elsif (!$ran_ok && !defined $search_re) {
+        eval {
+            ($search_dir, $search_re) = search(1, ERROR_SEARCH_PATTERN, 0);
+            $search_pattern = "/" . ERROR_SEARCH_PATTERN;
+        }; # Ignore the error, user will scroll/search/whatever
+    }
+
+    # Print an obvious marker below the output, then scroll up so that it's
+    # still available in the terminal's scrollback when we render the page.
+    print_msg_bar($DK_BLUE, "-", "");
+    print "\n" x $term_lines;
+
+    redraw();
+
+    @unknown_keys = ();
+
+    # The rotator (and all terminal updates) cause neovim to redraw
+    # its display, so it's currently not implemented.
+    my @rotator_chars = ("-", "/", "|", "\\");
+    my $i = 0;
+    my $j = 0;
+
+    $timeout = MAX_READKEY_TIMEOUT;
+
+    my $show_rotator_opt;
+
+    my $prev_fingerprints = $fingerprint;
+
+    while (($fingerprint = fingerprints(@watch_paths)) == $prev_fingerprints) {
+        my $key = readkey;
+
+        if ($timeout < MAX_READKEY_TIMEOUT) {
+            $timeout += MIN_READKEY_TIMEOUT;
+            if ($timeout > MAX_READKEY_TIMEOUT) {
+                $timeout = MAX_READKEY_TIMEOUT;
+            }
+        }
+
+        if ($show_rotator_opt) {
+            if ($j == 0) { # neovim seems to screw vim up when painting the screen, so do this rarely.
+                print "\b$rotator_chars[$i]";
+                if (++$i > $#rotator_chars) {
+                    $i = 0;
+                }
+            }
+            if (++$j > 10) {
+                $j = 0;
+            }
+        }
+
+        if ($key eq "h") {
+            @unknown_keys = ();
+            $err_msg = "";
+            print "\n";
+            print <<HELP_TEXT;
+e       Edit output in \$EDITOR
+h       Help
+l       View output in \$PAGER
+/<re>   Search for a Perl <re>, forward (/) or backwards (/)
+?<re>   Search for a Perl <re>, forward (/) or backwards (/)
+-R      Toggle escape code interpretation on and off (like less)
+^X^E    Edit command (like bash)
+:<line> Go to <line>
+^L      Redraw
+^R      Rerun
+q,^C    Quit
+
+(\$EDITOR defaults to vim, \$PAGER to less)
+HELP_TEXT
+
+            if (@most_recent_changed) {
+                print "\nChanged files:\n", map "    $_\n", @most_recent_changed;
+            }
+        }
+        elsif ($key eq "\x0c") { # \x0c: ^L
+            @unknown_keys = ();
+            $err_msg = "";
+            redraw();
+        }
+        elsif ($key eq "\x18") { # \x18: ^X
+            @unknown_keys = ();
+            $err_msg = "";
+
+            my $key2 = waitforkey;
+            if ($key2 eq "\x05") { # \x05: ^E; ^X^E: edit command, like bash
+                my ($fh, $fn) = tempfile("${prog_name}_XXXX", TMPDIR => 1, UNLINK => 1);
+                print $fh join " ", map {
+                    !/[\s"']/
+                        ? $_
+                        : do {
+                            my $s = $_;
+                            $s =~ s{[\\']}{\\'}g;
+                            qq{'$s'};
+                        };
+                } @cmd;
+
+                my @prog = ($ENV{EDITOR} || ("nvim"));
+                system @prog, $fn
+                    and $err_msg = join(" ", @prog, "returned", $? >> 8);
+
+                seek $fh, 0, 0;
+                my @new_cmd = split /\s+/, <$fh>;
+                s{\A'(.*)'\z}{
+                    my $arg = $1;
+                    $arg =~ s{\\(.)}{.}g;
+                    $arg;
+                }eg;
+                $err_msg = join " ", map "[$_]", @new_cmd;
+                if (join("|||", @cmd) ne join("|||", @new_cmd)) {
+                    @cmd = @new_cmd;
+                    last;
+                }
+            }
+
+            redraw();
+        }
+        elsif ($key eq "\x7f") { # \x7f: <BS>
+            if (@unknown_keys) {
+                pop @unknown_keys;
+                redraw();
+            }
+        }
+        elsif ($key eq "0") {
+            @unknown_keys = ();
+            $err_msg = "";
+            $first_col_to_show = 0;
+            redraw();
+        }
+        elsif ($key eq "\$") {
+            @unknown_keys = ();
+            $err_msg = "";
+            $first_col_to_show = max_col_to_show;
+            redraw();
+        }
+        elsif ($key eq "f") { # f: filter (experimenal, undocumented)
+            @unknown_keys = ();
+            $err_msg = "";
+
+            my $key2 = waitforkey;
+            if ($key2 eq "f") { # f: toggle on/off
+                $filter_enabled = !$filter_enabled;
+            }
+            elsif ($key2 eq "p") { # p: priority filter
+                $filter = \&filter_out_lower_priority_errors;
+                $filter_enabled = 1;
+            }
+            elsif ($key2 eq "u") { # u: uniqueness filter
+                $filter = \&filter_unique_errors;
+                $filter_enabled = 1;
+            }
+            else {
+                $err_msg = "valid filters are [p]riority and [u]niq; use [f] to toggle on/off";
+            }
+
+            if (!$filter) {
+                $err_msg = "no filter defined";
+            }
+            else {
+                filter();
+                redraw();
+            }
+        }
+        elsif ($key eq "l" || $key eq "e") {
+            @unknown_keys = ();
+            $err_msg = "";
+            my ($fh, $fn) = tempfile("${prog_name}_XXXX", TMPDIR => 1, UNLINK => 1);
+            print $fh @lines;
+
+            cls;
+            my @prog = $key eq "l" ? ($ENV{PAGER} || ("less", "-R", "-S")) : ($ENV{EDITOR} || ("vim", "-r"));
+            system @prog, $fn
+                and $err_msg = join(" ", @prog, "returned", $? >> 8);
+
+            redraw();
+        }
+        elsif ($key eq "g") { # "g"o to first line, live vim
+            @unknown_keys = ();
+            $err_msg = "";
+            $first_line_to_show = 0;
+            redraw();
+        }
+        elsif ($key eq "G") { # "g"o to last line, live vim
+            @unknown_keys = ();
+            $err_msg = "";
+            $first_line_to_show = -1;
+            redraw();
+        }
+        elsif ($key eq "n") {
+            @unknown_keys = ();
+            $err_msg = "";
+            search();
+            redraw();
+        }
+        elsif ($key eq "N") {
+            @unknown_keys = ();
+            $err_msg = "";
+            search($search_dir*-1);
+            redraw();
+        }
+        elsif ($key eq "q" || $key eq "\x03") { # 0x03: ^C
+            print "\n";
+            exit 0;
+        }
+        elsif ($key eq "\e") {
+            my $key2 = readkey;
+            my $key3 = $key2 eq "[" ? readkey : "";
+            if ($key3 eq "A") { # A: Up
+                @unknown_keys = ();
+                scroll(-1);
+            }
+            elsif ($key3 eq "5") { # 5: PageUp
+                @unknown_keys = ();
+                readkey; # discard the ~
+                scroll(-num_visible_lines);
+            }
+            elsif ($key3 eq "B") { # B: Down
+                @unknown_keys = ();
+                scroll(1);
+            }
+            elsif ($key3 eq "6") { # 6: PageDown
+                @unknown_keys = ();
+                readkey; # discard the ~
+                scroll(num_visible_lines);
+            }
+            elsif ($key3 eq "C") { # C: Right
+                @unknown_keys = ();
+                if ($first_col_to_show < max_col_to_show) {
+                    $first_col_to_show = min(max_col_to_show, $first_col_to_show + 1);
+                }
+            }
+            elsif ($key3 eq "D") { # D: Left
+                @unknown_keys = ();
+                if ($first_col_to_show > 0) {
+                    $first_col_to_show = max(0, $first_col_to_show - 1);
+                }
+            }
+            elsif ($key3 eq "H") { # H: <Home>
+                @unknown_keys = ();
+                $first_col_to_show = 0;
+            }
+            elsif ($key3 eq "F") { # F: <End>
+                @unknown_keys = ();
+                $first_col_to_show = max_col_to_show;
+                redraw();
+            }
+            else {
+                push @unknown_keys, "\\e", grep length, $key2, $key3;
+            }
+            redraw();
+        }
+        elsif ($key eq " ") { # <Space>
+            @unknown_keys = ();
+            scroll(num_visible_lines);
+        }
+        elsif ($key eq "\n" || $key eq "\r") { # <Enter>
+            @unknown_keys = ();
+            scroll(1);
+        }
+        elsif ($key eq "\x12") { # ^R: Rerun
+            @unknown_keys = ();
+            $err_msg = "";
+            last;
+        }
+        elsif ($key eq ":") {
+            @unknown_keys = ();
+            $err_msg = "";
+            my $s = ask $key;
+            if ($s) {
+                if ($s > 0) {
+                    --$s; # Perl arrays are zero based
+                }
+                $first_line_to_show = min(max(-max_first_line_to_show, $s), max_first_line_to_show);
+            }
+            redraw();
+        }
+        elsif ($key eq "/" || $key eq "?") {
+            @unknown_keys = ();
+            $err_msg = "";
+            my $s = ask $key;
+            if ($s eq "") {
+                $search_pattern = undef;
+                $search_re = undef;
+                $search_match_line = undef;
+            }
+            else {
+                $search_pattern = "$key$s";
+
+                $search_dir = $key eq "/" ? 1 : -1;
+                eval {
+                    ($search_dir, $search_re) = search($search_dir, $s, $search_match_line + $search_dir);
+                };
+            }
+            redraw();
+        }
+        elsif ($key eq "-") {
+            print "\n$key";
+            my $key2 = waitforkey;
+            if ($key2 eq "R") { # -R: toggle escape codes, like less
+                @unknown_keys = ();
+                $RAW_opt = !$RAW_opt;
+            }
+            else {
+                push @unknown_keys, ($key, $key2);
+                redraw();
+            }
+            redraw();
+        }
+        elsif (length $key) {
+            push @unknown_keys, $key =~ /[[:print:]]/ ? $key : sprintf("\\x%02x", ord $key);
+            redraw();
+        }
+        elsif (poll_terminal_size()) {
+            redraw();
+            $timeout = MIN_READKEY_TIMEOUT;
+        }
+    }
+}

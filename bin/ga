@@ -1,0 +1,6 @@
+if [[ "$@" = "" ]]
+then
+    git add -N .
+else
+    git add -N "$@"
+fi

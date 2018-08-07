@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+FORMAT="%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset"
+
+git log --graph --abbrev-commit --date-order "--pretty=format:$FORMAT" "$@"

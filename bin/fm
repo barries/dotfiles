@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -e
+set -o pipefail
+shopt -s nullglob
+
+set -x
+
+make --jobs=10 --output-sync CLANG_TIDY= "$@"
