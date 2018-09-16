@@ -53,7 +53,6 @@ set runtimepath^=~barries/.vim
 colorscheme barries
 syn on
 
-"set runtimepath^=~/.vim/bundle/ctrlp.vim
 set runtimepath^=~/.fzf
 
 function! s:handle_fzf_enter(cmd, lines) abort
@@ -92,7 +91,7 @@ endfunc
 
 function! E_command(...)
     let opts = {
-        \ 'options': ['--multi', '--select-1'],
+                \ 'options': ['--multi', '--select-1', '--tiebreak=end,length'],
         \ 'window': 'vertical aboveleft 100new'
     \ }
 
@@ -128,7 +127,7 @@ endfunc
 command! -nargs=* -complete=file_in_path E     call E_command(<f-args>)
 command! -nargs=* -range                 Align call Tabularize(<f-args>)
 
-autocmd VimEnter * call VimEnter_Initialize() 
+autocmd VimEnter * call VimEnter_Initialize()
 
 " Called after plugins are loaded, which is needed to override mapping set by plugins (like vim-mark's)
 function! VimEnter_Initialize()
@@ -139,6 +138,10 @@ let g:VimEnter_Initialize = 1
 cmap <expr> <leader><Tab> CmdLineTab()
 
 vmap <leader>a :Align /
+
+" Easier macro recording and playback using register q
+map <leader>q qq
+map <leader>. @q
 
 set wildcharm=<Tab>
 
@@ -179,18 +182,15 @@ augroup end
 
 " Status Line Appearance
 
-set fillchars=vert:\ ,fold:+,diff:\  " Remove pipe character from vertical splits, uses ' ' for deleted line in diff output
-set statusline=%f%4*%M%*%r%h%q " %f:Filename, %4*: User4 colored Mode, readonly, help
-set statusline+=%=  " switch to right
-set statusline+=\ %9*%l,%v%*
+set fillchars=vert:\ ,fold:+,diff:\     " Remove pipe character from vertical splits, uses ' ' for deleted line in diff output
+
+set statusline=%f\                      " %f: Filename
+set statusline+=%4*%m%5*%r%w%h%q%*      " %4*: User4 color; %m: modified; %5*: User5Color; %r: readonlyflag; %w: preview flag%h: help; %q: quickfix list; %*: revert color
+set statusline+=%=                      " %=: switch to right
+set statusline+=\ %9*%l,%v%*\ %p%%      " %9:*: User9 color; %l: line#; %v: virt. col number; %p: percent
 
 if has("nvim")
-"    function! SetMouseA(id)
-"        set mouse=a
-"    endfunc
-    autocmd TermOpen           *        setlocal statusline=%{b:term_title} | startinsert | set nonu | set norelativenumber
-"    autocmd WinEnter           term://* set mouse= | let w:set_mouse_timer=timer_start(250,'SetMouseA',{'repeat':1})
-"    autocmd TermClose,WinLeave term://* set mouse=a
+    autocmd TermOpen           *        setlocal statusline=%{b:term_title} | set winfixheight | startinsert | set nonu | set norelativenumber
 
     map     <silent> <C-W>! :split<CR><C-W><S-J>:term<CR>
     imap    <silent> <C-W>! <Esc><C-W>!
@@ -224,6 +224,30 @@ endif
 "set colorcolumn=81 " colorize column 81
 set hlsearch       " highlight search terms
 
+" Highlight all instances of word under cursor, when idle.
+" Useful when studying strange source code.
+" Type z/ to toggle highlighting on/off.
+nnoremap z/ :if AutoHighlightToggle()<Bar>set hls<Bar>endif<CR>
+function! AutoHighlightToggle()
+  let @/ = ''
+  if exists('#auto_highlight')
+    au! auto_highlight
+    augroup! auto_highlight
+    setl updatetime=4000
+    echo 'Highlight current word: off'
+    return 0
+  else
+    augroup auto_highlight
+      au!
+      au CursorHold  * normal :Mark\ <C-r><C-w>
+      au CursorMoved * normal :MarkClear
+    augroup end
+    setl updatetime=500
+    echo 'Highlight current word: ON'
+    return 1
+  endif
+endfunction
+
 " State files
 set dir=~/tmp/vim//
 set bdir=~/tmp/vim//
@@ -231,6 +255,7 @@ set undodir=~/tmp/vim//
 set undofile    " Create undo files so you can undo past file close (>= 7.3)
 
 "set spell
+set spellfile=~/.vim/spellfile.en.add
 
 set mouse=a
 
@@ -276,8 +301,16 @@ set virtualedit=block " block: allow selecting rectangles that end in short line
 set winminwidth=0   " Allow windows to collapse completely
 set winminheight=0  " Allow windows to collapse completely
 set winwidth=1      " Don't open windows more than one column when selecting
+set splitbelow
+set splitright
 
 set whichwrap+=<,>,h,l,[,]
+
+" ^E to enter command line mode (like the micro editor)
+imap <C-e> <C-o>:
+
+imap <C-\> <C-o><leader>
+tmap <C-\> <C-\><C-n><leader>
 
 " ^S to Save
 map  <silent> <C-s> :wa<CR>
@@ -358,40 +391,63 @@ function! HandleCommandModeF13()
     endif
 endfunction
 
-" File->Open emulation, with fuzzy matching
-map  <silent>   <M-f>o    :E<CR>
-vmap <silent>   <M-f>o    <Esc><M-f>o
-imap <silent>   <M-f>o    <Esc><M-f>o
-cmap <silent>   <M-f>o    <Esc><M-f>o
+" <Alt-F>o: gui-menu-like File->Open emulation, with fuzzy matching
+map  <silent> <M-f>o :E<CR>
+vmap <silent> <M-f>o <Esc><M-f>o
+imap <silent> <M-f>o <Esc><M-f>o
+cmap <silent> <M-f>o <Esc><M-f>o
 
 " Open Other related file (Find other files with similar names and different
 " extensions easily.
-map  <expr>     <M-f>O    OpenOtherRelatedFile("")
-map  <expr>     <M-f>C    OpenOtherRelatedFile("cpp")
-map  <expr>     <M-f>H    OpenOtherRelatedFile("h")
-map  <expr>     <M-f>I    OpenOtherRelatedFile("ivcg")
+map  <expr> <M-f>O OpenOtherRelatedFile("")
+map  <expr> <M-f>C OpenOtherRelatedFile("cpp")
+map  <expr> <M-f>H OpenOtherRelatedFile("h")
+map  <expr> <M-f>I OpenOtherRelatedFile("ivcg")
 
-function! OpenOtherRelatedFile(ext)
-    let root  = expand("%:t:r")
-    let t     = expand("%:t")
-
+function! OpenOtherRelatedFile(ext) abort
     let ext = a:ext
     if l:ext != ""
         let l:ext = "." . l:ext
     endif
 
+    let fn = expand("%:t")
+    let new_fn = substitute(fn, '.\zs\.[^.]\+', "." . a:ext, '')
+
     let exclusion_prefix = "/"
-    if expand("%:t") == expand("%") " Not in a dir
+    if fn == expand("%") " Not in a dir
         let exclusion_prefix = "^"
     endif
 
     " !...$ excludes files with the current file's name
-    return ":E !" . exclusion_prefix . t . "$ /" . root . l:ext . "\<CR>"
+    return ":E !" . exclusion_prefix . fn . "$ /" . new_fn . "\<CR>"
 endfunction
 
 " <leader>r: replace
 map     <leader>r :%s/\<<c-R><c-W>\>//g<Left><Left>
 vmap    <leader>r "zy:%s/<c-R>z//g<Left><Left>
+
+" <leader>R: windo replace
+map     <leader>R :windo %s/\<<c-R><c-W>\>//g<Left><Left>
+vmap    <leader>R "zy:windo %s/<c-R>z//g<Left><Left>
+
+" <leader>w: select window by name
+map     <expr> <leader>w SelectWindowByName()
+
+if &diff
+    map <leader>H VxnVnx
+    map <leader>O VnxknVx
+endif
+
+function! SelectWindowByName()
+    let pattern = input('Window? ')
+    let winnr = bufwinnr(pattern)
+    if winnr <= 0
+        redraw
+        echoerr('Window ' . pattern . ' not found')
+    else
+        exe winnr . "wincmd w"
+    endif
+endfunction
 
 " <F4>: sync with filesystem: load & save changes
 map     <silent> <F4> :checktime<CR>:wa<CR>:diffupdate<CR>
@@ -433,6 +489,38 @@ if has("nvim")
     tmap   <silent> <F5> <C-\><C-n><F5>i
 endif
 
+map <expr> <F5> ":call GrepInTerm(\'" . expand("<cword>") . "')<CR><C-\><C-n>"
+
+function! DeleteProcessExitedMessage(timer_id)
+    setlocal modifiable
+    execute '%s/\[Process exited 0\]//'
+    execute '%s/\($\n\s*\)\+\%$//'
+endfunction
+
+function! OnExitSuppressProcessExitedWith0(job_id, code, event)
+    call timer_start(10, 'DeleteProcessExitedMessage')
+endfunction
+
+function! GrepInTerm(pattern) abort
+
+    botright sp
+    enew
+
+    let cmd =  'grep -rw "' . a:pattern . '" *'
+    let opt = { 'on_exit': 'OnExitSuppressProcessExitedWith0' }
+    call termopen(cmd . ' ; sleep 0.1', opt) " sleep allows neovim to read all output
+    let b:term_title = cmd
+
+endfunction
+
+" <S-F5> (<F15>) to list matching files, which is useful prior to opening
+" each.
+map     <silent> <F15> :exec('!grep -rwl "' . expand("<cword>") . '" .')<CR>
+imap    <silent> <F15> <Esc><F15>i
+vmap    <silent> <F15> :\<C-u>exec('!grep -rl "' . GetVisualSelection() . '" .')<CR>
+if has("nvim")
+    tmap   <silent> <F15> <C-\><C-n><F15>i
+endif
 " <F7>: Open command-line window, like cmd.com's <F7>
 map  <F7> :<F7>
 vmap <F7> :<F7>
@@ -452,15 +540,24 @@ if has("nvim")
     tmap   <silent> <S-F8>  <Esc>:cprev<CR>
 endif
 
-" <F9>: Show syntax stack (developer hack, easily moved)
-function! SynStack()
-  if !exists("*synstack")
-      return
-  endif
-  return "[".join(map(synstack(line('.'), col('.')), 'synIDattr(v:val, "name")'),",")."]"
-endfunc
+" <F9>: move to previous window. I often use <F2> to exit terminal mode
+" and the next move is usually to move to the previous window.
+map  <F9> <C-w>p
+vmap <F9> <Esc><F9>
+if has("nvim")
+    tmap   <silent> <F9>    <F2><F9>
+endif
 
-map    <silent> <F9>   :echo "hi<".synIDattr(synID(line("."),col("."),1),"name").'> trans<'.synIDattr(synID(line("."),col("."),0),"name")."> lo<".synIDattr(synIDtrans(synID(line("."),col("."),1)),"name")."> stack:".SynStack()<CR>
+" Show syntax stack (developer hack, easily moved)
+" function! SynStack()
+"   if !exists("*synstack")
+"       return
+"   endif
+"   return "[".join(map(synstack(line('.'), col('.')), 'synIDattr(v:val, "name")'),",")."]"
+" endfunc
+"
+" map    <silent> <TBD>   :echo "hi<".synIDattr(synID(line("."),col("."),1),"name").'> trans<'.synIDattr(synID(line("."),col("."),0),"name")."> lo<".synIDattr(synIDtrans(synID(line("."),col("."),1)),"name")."> stack:".SynStack()<CR>
+
 
 " <F10> Full screen the visual selection
 " <F20> (<S-F10>): Narrow back.
@@ -469,7 +566,7 @@ vmap   <silent> <F10> :<C-u><F10>
 map    <silent> <F10> :tabclose<CR>
 
 " <F11>: "full screen"
-map    <silent> <F11> :tab split<CR>100zH
+map    <silent> <F11> :tab split \| setlocal laststatus=1<CR>100zH
 imap   <silent> <F11> <C-o><F11>
 vmap   <silent> <F11> <Esc><Fll>gv
 if has("nvim")
@@ -745,7 +842,7 @@ function! SelectSyntaxRegion(i_or_a)
   " TODO: Also move the cursor if this call to SelectSyntaxRegion() isn't
   " the first since entering a visual mode. This will need the VisualEnter
   " autocmd event, when it arrives. Until then, simulating VisualEnter fully
-  " does not seem 
+  " does not seem possible
   if (l:is_big_region && !l:is_at_start) || l:grow_both_ends
     call MoveCursor('l')
   end

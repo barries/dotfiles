@@ -68,8 +68,8 @@ hi DiffText                                     ctermbg=019
 
 " statusline highlights (see %9*, etc, specifiers in statusline= settings
 hi User4        cterm=NONE  ctermfg=Black ctermbg=202 " Modified
+hi User5        cterm=NONE  ctermfg=Black ctermbg=248 " Other flags
 hi User9        cterm=NONE  ctermfg=240   ctermbg=118 " Position in file
-hi StatusLineModified                     ctermbg=202
 hi StatusLineSelected       ctermfg=Black ctermbg=118
 hi StatusLineUnselected     ctermfg=Black ctermbg=246
 

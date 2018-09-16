@@ -508,7 +508,7 @@ HISTORY
 - CHG: Parse :Mark arguments as either /{pattern}/ or whole {word}. This
   better addresses the common use case of searching for whole words, and is
   consistent with built-in commands like :djump.
-- ENH: Keep previous (last accessed) window on :windo.
+-%home%barries%git%r0%Station%Source%bin%exercise_component ENH: Keep previous (last accessed) window on :windo.
 - Consistently use :noautocmd during window iteration.
 - ENH: Add :MarkYankDefinitions and :MarkYankDefinitionsOneLiner commands.
   These make it easier to persist marks for specific files (e.g. by putting
