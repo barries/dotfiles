@@ -97,7 +97,7 @@ if (@ARGV) {
     @cmd = @ARGV;
 }
 
-@watch_paths = split /;/, $ENV{ON_CHANGE_WATCH} unless @watch_paths;
+@watch_paths = split /;/, ($ENV{ON_CHANGE_WATCH} // "") unless @watch_paths;
 @watch_paths = (".") unless @watch_paths;
 
 usage(1) unless @cmd;
@@ -735,14 +735,24 @@ while (1) {
 e       Edit output in \$EDITOR
 h       Help
 l       View output in \$PAGER
+w       Write output to a file
+
 /<re>   Search for a Perl <re>, forward (/) or backwards (/)
 ?<re>   Search for a Perl <re>, forward (/) or backwards (/)
+n       Search for next <re> match
+N       Search for prior <re> match
+
 -R      Toggle escape code interpretation on and off (like less)
 ^X^E    Edit command (like bash)
 :<line> Go to <line>
 ^L      Redraw
 ^R      Rerun
 q,^C    Quit
+
+g       Scroll to first line
+G       Scroll to last line
+0       Scroll to leftmost column
+\$       Scroll to rightmost column
 
 (\$EDITOR defaults to vim, \$PAGER to less)
 HELP_TEXT
@@ -880,11 +890,29 @@ HELP_TEXT
             print "\n";
             exit 0;
         }
+        elsif ($key eq "w") {
+            my $fn = ask "filename? ";
+            if (length $fn) {
+                my @fns = glob($fn);
+                if (@fns == 0) {
+                    $err_msg = "file not found: $fn";
+                }
+                elsif (@fns > 1) {
+                    $err_msg = "multiple files found: " . join(" ", @fns);
+                }
+                elsif (!open my $fh, ">", $fns[0]) {
+                    $err_msg = "$!: $fns[0]";
+                }
+                else {
+                    print $fh @lines;
+                }
+            }
+        }
         elsif ($key eq "\e") {
             my $key2 = readkey;
             my $key3 = $key2 eq "[" ? readkey : "";
             if ($key3 eq "A") { # A: Up
-                @unknown_keys = ();
+               @unknown_keys = ();
                 scroll(-1);
             }
             elsif ($key3 eq "5") { # 5: PageUp

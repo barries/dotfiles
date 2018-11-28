@@ -169,6 +169,15 @@ function! CmdLineTab()
     return "\<Esc>:call E_command('" . join(args). "')\<CR>"
 endfunc
 
+function! ClearRegs()
+    let regs=split('abcdefghijklmnopqrstuvwxyz0123456789/-"', '\zs')
+    for r in regs
+        call setreg(r, [], 'c')
+    endfor
+endfunction
+
+command! ClearRegs :call ClearRegs()
+
 " Disabled: this overrides the foreground in all rows set cursorcolumn
 " Disabled: this overrides the foreground in all rows set cursorline
 
@@ -176,21 +185,24 @@ endfunc
 "
 augroup MyCursorLine
   au!
-  au FilterWritePost * if  &diff | let &cursorline=1 | let &cursorcolumn=1 | endif
-  au BufEnter        * if !&diff | let &cursorline=0 | let &cursorcolumn=0 | endif
+"  au FilterWritePost * if  &diff | let &cursorline=1 | let &cursorcolumn=1 | endif
+"  au BufEnter        * if !&diff | let &cursorline=0 | let &cursorcolumn=0 | endif
 augroup end
 
 " Status Line Appearance
 
 set fillchars=vert:\ ,fold:+,diff:\     " Remove pipe character from vertical splits, uses ' ' for deleted line in diff output
 
+function! GetStatusLineRHS()
+    return "%=%9*%l,%v%*\ %p%%"                      " %=: switch to right; %9:*: User9 color; %l: line#; %v: virt. col number; %p: percent
+endfunction
+
 set statusline=%f\                      " %f: Filename
 set statusline+=%4*%m%5*%r%w%h%q%*      " %4*: User4 color; %m: modified; %5*: User5Color; %r: readonlyflag; %w: preview flag%h: help; %q: quickfix list; %*: revert color
-set statusline+=%=                      " %=: switch to right
-set statusline+=\ %9*%l,%v%*\ %p%%      " %9:*: User9 color; %l: line#; %v: virt. col number; %p: percent
+let &statusline=&statusline . GetStatusLineRHS()
 
 if has("nvim")
-    autocmd TermOpen           *        setlocal statusline=%{b:term_title} | set winfixheight | startinsert | set nonu | set norelativenumber
+    autocmd TermOpen           *        let &l:statusline="%{b:term_title}" . GetStatusLineRHS() | set winfixheight | startinsert | set nonu | set norelativenumber
 
     map     <silent> <C-W>! :split<CR><C-W><S-J>:term<CR>
     imap    <silent> <C-W>! <Esc><C-W>!
@@ -400,18 +412,14 @@ cmap <silent> <M-f>o <Esc><M-f>o
 " Open Other related file (Find other files with similar names and different
 " extensions easily.
 map  <expr> <M-f>O OpenOtherRelatedFile("")
-map  <expr> <M-f>C OpenOtherRelatedFile("cpp")
-map  <expr> <M-f>H OpenOtherRelatedFile("h")
-map  <expr> <M-f>I OpenOtherRelatedFile("ivcg")
+map  <expr> <M-f>C OpenOtherRelatedFile(".cpp")
+map  <expr> <M-f>H OpenOtherRelatedFile(".h")
+map  <expr> <M-f>I OpenOtherRelatedFile(".ivcg")
+map  <expr> <M-f>T OpenOtherRelatedFile("Tests.cpp")
 
 function! OpenOtherRelatedFile(ext) abort
-    let ext = a:ext
-    if l:ext != ""
-        let l:ext = "." . l:ext
-    endif
-
     let fn = expand("%:t")
-    let new_fn = substitute(fn, '.\zs\.[^.]\+', "." . a:ext, '')
+    let new_fn = substitute(fn, '.\zs\.[^.]\+', a:ext, '')
 
     let exclusion_prefix = "/"
     if fn == expand("%") " Not in a dir

@@ -5,4 +5,16 @@ set -o pipefail
 set -x
 
 git remote prune origin
-git branch -r | awk '{print $1}' | egrep -v -f /dev/fd/0 <(git branch -vv | grep -v '^\*' | grep origin ) | awk '{print $1}' | xargs git branch -D
+
+# Get all branches with no "origin/" set:
+# perl -e 'for (map { /^ +(\S+)/m; "$1\n"; } grep !/origin\//,`git branch -vv --sort=committerdate`) { if (/\S/) { print; } }'<Paste>
+
+git branch -r \
+    | awk '{print $1}' \
+    | egrep -v -f /dev/fd/0 <( \
+        git branch -vv         \
+        | grep -v '^\*'        \
+        | grep origin          \
+    ) \
+    | awk '{print $1}' \
+    | xargs git branch -D

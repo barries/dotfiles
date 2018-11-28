@@ -77,6 +77,8 @@ hi StatusLine   cterm=NONE  ctermfg=Black ctermbg=118
 hi VertSplit                ctermfg=246   ctermbg=0
 hi StatusLineNC cterm=NONE  ctermfg=Black ctermbg=246
 
+hi Folded       cterm=NONE  ctermfg=246   ctermbg=236
+
 " vim-mark colors
 hi MarkWord1 ctermbg=cyan    ctermfg=Black
 hi MarkWord2 ctermbg=green   ctermfg=Black
