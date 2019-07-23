@@ -1,4 +1,3 @@
-
 " Vim syntax file
 " Language: IVCG
 " Maintainer: Barrie Slaymaker

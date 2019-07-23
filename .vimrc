@@ -46,6 +46,7 @@ syntax enable
 if !has("nvim")
     set ttymouse=xterm2 " Allow mouse to drag splits
     set t_Co=256
+    let $GIT_EDITOR = 'nvr -cc split --remote-wait'
 endif
 
 set runtimepath^=~barries/.vim
@@ -91,7 +92,7 @@ endfunc
 
 function! E_command(...)
     let opts = {
-                \ 'options': ['--multi', '--select-1', '--tiebreak=end,length'],
+        \ 'options': ['--multi', '--select-1', '-i', '--tiebreak=end,length'],
         \ 'window': 'vertical aboveleft 100new'
     \ }
 
@@ -125,6 +126,7 @@ function! E_command(...)
 endfunc
 
 command! -nargs=* -complete=file_in_path E     call E_command(<f-args>)
+
 command! -nargs=* -range                 Align call Tabularize(<f-args>)
 
 autocmd VimEnter * call VimEnter_Initialize()
@@ -136,6 +138,8 @@ let g:VimEnter_Initialize = 1
 
 " cabbrev <expr> e (getcmdtype()==':' && getcmdpos()<=2 ? 'E' : 'e')
 cmap <expr> <leader><Tab> CmdLineTab()
+
+nmap <C-\> <leader>
 
 vmap <leader>a :Align /
 
@@ -189,6 +193,12 @@ augroup MyCursorLine
 "  au BufEnter        * if !&diff | let &cursorline=0 | let &cursorcolumn=0 | endif
 augroup end
 
+if &diff
+    set cursorline
+end
+
+set foldopen-=hor
+
 " Status Line Appearance
 
 set fillchars=vert:\ ,fold:+,diff:\     " Remove pipe character from vertical splits, uses ' ' for deleted line in diff output
@@ -202,9 +212,9 @@ set statusline+=%4*%m%5*%r%w%h%q%*      " %4*: User4 color; %m: modified; %5*: U
 let &statusline=&statusline . GetStatusLineRHS()
 
 if has("nvim")
-    autocmd TermOpen           *        let &l:statusline="%{b:term_title}" . GetStatusLineRHS() | set winfixheight | startinsert | set nonu | set norelativenumber
+    autocmd TermOpen * let &l:statusline="%{b:term_title}" . GetStatusLineRHS() | set winfixheight | set nonu | set norelativenumber
 
-    map     <silent> <C-W>! :split<CR><C-W><S-J>:term<CR>
+    map     <silent> <C-W>! :split<CR><C-W><S-J>:term<CR>:startinsert<CR>
     imap    <silent> <C-W>! <Esc><C-W>!
     vmap    <silent> <C-W>! <Esc><C-W>!
     omap    <silent> <C-W>! <Esc><C-W>!
@@ -221,6 +231,9 @@ set listchars=tab:\ \ ,trail:.,extends:>,precedes:<,nbsp:.
 
 " Display unprintables as <00> hex codes rather than ^@ control codes
 set display+=uhex
+
+" Display partial last line
+set display+=lastline
 
 " Can't redefing a function that a timer ever used, apparently.
 if !exists("g:timer")
@@ -278,6 +291,7 @@ set expandtab
 set tabstop=4     " a hard tab is eight spaces
 set softtabstop=4 " indent w/ TAB key like so
 set shiftwidth=4  " number of spaces to use for autoindenting
+set noshiftround  " Don't align all lines' indents when indenting/outdenting
 set backspace=indent,eol,start
                   " allow backspacing over everything in insert mode
 set autoindent    " always set autoindenting on
@@ -290,9 +304,6 @@ set showmatch     " set show matching parenthesis
 
 set sidescroll=1  " scroll by 1 char at a time instead of 1/2 screen width
 
-" Searching
-set noignorecase  " don't ignore case when searching
-set nosmartcase   " don't ignore case if search pattern is all lowercase, case-sensitive otherwise
 set smarttab      " insert tabs on the start of a line according to
                   "    shiftwidth, not tabstop
 set incsearch     " show search matches as you type
@@ -310,11 +321,14 @@ set switchbuf=usetab,split " usetab: Search for open window or tab first. split:
 
 set virtualedit=block " block: allow selecting rectangles that end in short lines
 
+set nowarn          " Avoid [No write since last change] with :!
 set winminwidth=0   " Allow windows to collapse completely
 set winminheight=0  " Allow windows to collapse completely
 set winwidth=1      " Don't open windows more than one column when selecting
 set splitbelow
 set splitright
+
+set keymodel-=stopsel " Don't let arrow keys exit visual mode
 
 set whichwrap+=<,>,h,l,[,]
 
@@ -339,12 +353,12 @@ if has("nvim")
 endif
 
 " Tabs <leader>-Arrows, Home, etc: move between tabs
-map     <Leader>!           :tabnew<CR>:term<CR>
-map     <Leader><Insert>    :tabnew<CR>
-map     <leader><Left>      :tabprev<CR>
-map     <leader><Right>     :tabnext<CR>
-map     <leader><Home>      :tabfirst<CR>
-map     <leader><End>       :tablast<CR>
+map <silent> <Leader>!           :tabnew<CR>:term<CR>
+map <silent> <Leader><Insert>    :tabnew<CR>
+map <silent> <leader><Left>      :tabprev<CR>
+map <silent> <leader><Right>     :tabnext<CR>
+map <silent> <leader><Home>      :tabfirst<CR>
+map <silent> <leader><End>       :tablast<CR>
 
 " <F1>: Help for word under cursor or visual selection
 map     <expr> <F1>    ":\<C-u>tab help " . expand("<cword>") . "\<CR>"
@@ -440,6 +454,10 @@ vmap    <leader>R "zy:windo %s/<c-R>z//g<Left><Left>
 
 " <leader>w: select window by name
 map     <expr> <leader>w SelectWindowByName()
+
+" Searching
+set noignorecase  " don't ignore case when searching
+set nosmartcase   " don't ignore case if search pattern is all lowercase, case-sensitive otherwise
 
 if &diff
     map <leader>H VxnVnx

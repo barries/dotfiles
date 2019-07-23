@@ -37,11 +37,11 @@ hi cppSTLfunction ctermfg=159
 hi cCustomClass   ctermfg=255
 hi cppAccess      cterm=underline ctermfg=195
 
-hi ivcgAlignment        cterm=underline      ctermfg=Cyan         gui=NONE guifg=#ffff00
-hi ivcgBlock            cterm=NONE           ctermfg=Cyan         gui=NONE guifg=#ffff00
-hi ivcgBraces           cterm=NONE           ctermfg=Cyan         gui=NONE guifg=#ffff00
-hi ivcgQuasiQuote       cterm=NONE           ctermfg=Cyan         gui=NONE guifg=#ffff00
-hi ivcgKeywordDirective cterm=NONE           ctermfg=Cyan         gui=NONE guifg=#ffff00
+hi ivcgAlignment        cterm=underline      ctermfg=Green        gui=NONE guifg=#ffff00
+hi ivcgBlock            cterm=NONE           ctermfg=Green        gui=NONE guifg=#ffff00
+hi ivcgBraces           cterm=NONE           ctermfg=Green        gui=NONE guifg=#ffff00
+hi ivcgQuasiQuote       cterm=NONE           ctermfg=Green        gui=NONE guifg=#ffff00
+hi ivcgKeywordDirective cterm=NONE           ctermfg=Green        gui=NONE guifg=#ffff00
 
 hi PerlSpecialString            ctermfg=LightCyan ctermbg=234 cterm=underline
 
@@ -54,7 +54,7 @@ hi Search       cterm=NONE                      ctermbg=Yellow
 hi IncSearch    cterm=NONE                      ctermbg=214
 hi Substitute   cterm=NONE      ctermfg=Yellow  " bg seems to be ignored
 hi LineNr                       ctermfg=240
-hi NonText cterm=bold,underline ctermfg=Black   ctermbg=120         " listchars extends, precedes, eol, etc.
+hi NonText cterm=bold,underline ctermfg=Black   ctermbg=008         " listchars extends, precedes, eol, etc.
 hi Pmenu                        ctermfg=Blue    ctermbg=017         " Popup menu (autocompletion, etc)
 hi PmenuSel                     ctermfg=123     ctermbg=DarkBlue    " Popup menu selected item
 hi QuickFixLine cterm=bold,underline

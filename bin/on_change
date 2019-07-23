@@ -25,7 +25,7 @@ use constant {
     MAX_READKEY_TIMEOUT    =>  0.1,  # 0.1: Once user stops changing things, reduce CPU%
 };
 
-use constant ERROR_SEARCH_PATTERN => "^error|\\berror:|failure|failed|segmentation fault|SEGFAULT/i";
+use constant ERROR_SEARCH_PATTERN => "^error[^a-zA-Z_]|\\berror:|failure|failed|segmentation fault|SEGFAULT/i";
 
 my $prog_name = basename $0;
 
@@ -169,8 +169,7 @@ sub fingerprints {
     find {
         no_chdir => 1,
         wanted => sub {
-
-            if (m{/tmp/|/cg/|/CodeGen/|/\.|\A.[^/.]} && !-f $_) {
+            if (m{/tmp/|/cg/|/CodeGen/|/\.|\A.[^/.]}) {
                 $File::Find::prune = 1;
                 return;
             }
@@ -182,7 +181,8 @@ sub fingerprints {
             }
             $fingerprint += $f;
         }
-    }, map glob, @_;
+    },
+    map glob, @_;
 
     return $fingerprint;
 }
@@ -716,7 +716,7 @@ while (1) {
         }
 
         if ($show_rotator_opt) {
-            if ($j == 0) { # neovim seems to screw vim up when painting the screen, so do this rarely.
+            if ($j == 0) { # neovim seems to screw up when painting the screen, so do this rarely.
                 print "\b$rotator_chars[$i]";
                 if (++$i > $#rotator_chars) {
                     $i = 0;
@@ -733,7 +733,7 @@ while (1) {
             print "\n";
             print <<HELP_TEXT;
 e       Edit output in \$EDITOR
-h       Help
+h       Help (includes list of most recently changed files)
 l       View output in \$PAGER
 w       Write output to a file
 
@@ -754,7 +754,7 @@ G       Scroll to last line
 0       Scroll to leftmost column
 \$       Scroll to rightmost column
 
-(\$EDITOR defaults to vim, \$PAGER to less)
+(\$EDITOR defaults to nvim, \$PAGER to less)
 HELP_TEXT
 
             if (@most_recent_changed) {
@@ -855,10 +855,17 @@ HELP_TEXT
             my ($fh, $fn) = tempfile("${prog_name}_XXXX", TMPDIR => 1, UNLINK => 1);
             print $fh @lines;
 
-            cls;
-            my @prog = $key eq "l" ? ($ENV{PAGER} || ("less", "-R", "-S")) : ($ENV{EDITOR} || ("vim", "-r"));
-            system @prog, $fn
-                and $err_msg = join(" ", @prog, "returned", $? >> 8);
+            if ($key eq "e" && $ENV{NVIM_LISTEN_ADDRESS} && -e $ENV{NVIM_LISTEN_ADDRESS}) {
+                my @prog = ("nvr", "-c", ":tabnew", "-c", "set scrollback=100000", "-c", "term cat $fn", "-c", ":1", "-c", ":set laststatus=2");
+                system @prog
+                    and $err_msg = join(" ", @prog, "returned", $? >> 8);
+            }
+            else {
+                cls;
+                my @prog = $key eq "l" ? ($ENV{PAGER} || ("less", "-R", "-S")) : ($ENV{EDITOR} || ("vim", "-r"));
+                system @prog, $fn
+                    and $err_msg = join(" ", @prog, "returned", $? >> 8);
+            }
 
             redraw();
         }
@@ -888,7 +895,7 @@ HELP_TEXT
         }
         elsif ($key eq "q" || $key eq "\x03") { # 0x03: ^C
             print "\n";
-            exit 0;
+            exit !$ran_ok;
         }
         elsif ($key eq "w") {
             my $fn = ask "filename? ";

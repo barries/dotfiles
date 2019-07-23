@@ -21,7 +21,10 @@ if [ -d "$HOME/bin" ] ; then
     PATH="$HOME/bin:$PATH"
 fi
 
-PATH="$PATH:./bin"
+# set PATH so it includes user's private bin if it exists
+if [ -d "$HOME/.local/bin" ] ; then
+    PATH="$HOME/.local/bin:$PATH"
+fi
 
 stty -ixon # Disable ^S/^Q
 
@@ -30,3 +33,9 @@ export EDITOR=nvim
 export GTEST_COLOR=1
 export "GDB_FLAGS=-ex 'catch throw' -ex 'set confirm off' -ex 'set pagination off' -ex run"
 export "GDB_AUTORUN_FLAGS=$GDB_FLAGS ex-ex run -ex bt -ex q"
+
+if xlsatoms -name PRIMARY 2>/dev/null ; then
+    env | grep DISPLAY | perl -ne 'print "export $_"' > ~/tmp/DISPLAY.sh
+elif [ -s ~/tmp/DISPLAY.sh ] ; then
+    . ~/tmp/DISPLAY.sh
+fi

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -e
+set -o pipefail
+set -x
+
+EDITOR=${EDITOR:=nvim}
+
+if [[ -e $NVIM_LISTEN_ADDRESS ]]; then
+    nvr -cc wincmd\ p -O "$@"
+else
+    $EDITOR -O "$@"
+fi

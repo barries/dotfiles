@@ -1,0 +1,5 @@
+set -e
+set -o pipefail
+shopt -s nullglob
+
+git push
