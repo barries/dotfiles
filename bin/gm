@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 
-set -e
-set -o pipefail
+set -eo pipefail
 shopt -s nullglob
 
-git fetch && git merge origin/$1
+if [[ $# -eq 0 ]]; then
+    BRANCH=`git branch --all | perl -pe 's/^\\h+//; s/\\h+$//;' | fzf`
+else
+    BRANCH="origin/$1"
+fi
+
+git fetch && git merge "$BRANCH"

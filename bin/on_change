@@ -25,7 +25,7 @@ use constant {
     MAX_READKEY_TIMEOUT    =>  0.1,  # 0.1: Once user stops changing things, reduce CPU%
 };
 
-use constant ERROR_SEARCH_PATTERN => "^error[^a-zA-Z_]|\\berror:|failure|failed|segmentation fault|SEGFAULT/i";
+use constant ERROR_SEARCH_PATTERN => "^(?:error|ERROR)[^a-zA-Z_]|\\b(?:error|ERROR):|(?i:failure|failed|segmentation fault|SEGFAULT)/";
 
 my $prog_name = basename $0;
 
@@ -169,7 +169,7 @@ sub fingerprints {
     find {
         no_chdir => 1,
         wanted => sub {
-            if (m{/tmp/|/cg/|/CodeGen/|/\.|\A.[^/.]}) {
+            if (m{/tmp/|/cg/|/CodeGen/|/\.|\A\.[^/.]}) {
                 $File::Find::prune = 1;
                 return;
             }

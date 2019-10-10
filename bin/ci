@@ -1,3 +1,7 @@
-set -e
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
 
 git add -A && git commit "$@"

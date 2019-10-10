@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 
-set -e
-set -o pipefail
+set -eo pipefail
 shopt -s nullglob
-
-set -x
 
 # -d: assume vim-like diff mode option
 

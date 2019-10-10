@@ -1,6 +1,6 @@
 "dein Scripts-----------------------------
 if &compatible
-  set nocompatible               " Be iMproved
+ set nocompatible               " Be iMproved
 endif
 
 set runtimepath+=/home/barries/.vim/bundle/repos/github.com/Shougo/dein.vim
@@ -299,7 +299,6 @@ set copyindent    " copy the previous indentation on autoindenting
 
 set cinoptions=(s,m1 " (s,m1: indent close paren under first in open paren's line
 
-set shiftround    " use multiple of shiftwidth when indenting with '<' and '>'
 set showmatch     " set show matching parenthesis
 
 set sidescroll=1  " scroll by 1 char at a time instead of 1/2 screen width
@@ -335,6 +334,8 @@ set whichwrap+=<,>,h,l,[,]
 " ^E to enter command line mode (like the micro editor)
 imap <C-e> <C-o>:
 
+" Allow control-leader, so that I don't need to exit TERMINAL MODE before
+" swapping tabs, etc.
 imap <C-\> <C-o><leader>
 tmap <C-\> <C-\><C-n><leader>
 
@@ -353,15 +354,15 @@ if has("nvim")
 endif
 
 " Tabs <leader>-Arrows, Home, etc: move between tabs
-map <silent> <Leader>!           :tabnew<CR>:term<CR>
-map <silent> <Leader><Insert>    :tabnew<CR>
+map <silent> <leader>!           :tabnew<CR>:term<CR>:startinsert<CR>
+map <silent> <leader><Insert>    :tabnew<CR>
 map <silent> <leader><Left>      :tabprev<CR>
 map <silent> <leader><Right>     :tabnext<CR>
 map <silent> <leader><Home>      :tabfirst<CR>
 map <silent> <leader><End>       :tablast<CR>
 
 " <F1>: Help for word under cursor or visual selection
-map     <expr> <F1>    ":\<C-u>tab help " . expand("<cword>") . "\<CR>"
+map     <silent><expr> <F1>    ":\<C-u>tab help " . expand("<cword>") . "\<CR>"
 vmap    <silent><expr> <F1>    ":\<C-u>tab help " . GetVisualSelection() . "\<CR>"
 
 function! GetVisualSelection()
@@ -529,8 +530,13 @@ endfunction
 
 function! GrepInTerm(pattern) abort
 
-    botright sp
-    enew
+    let buf = nvim_create_buf(v:false, v:true)
+    let opts = {'relative': 'editor', 'width': 200, 'height': 50, 'col': 10,
+        \ 'row': 1, 'anchor': 'NW'}
+    let win = nvim_open_win(buf, 0, opts)
+    " optional: change highlight, otherwise Pmenu is used
+    call nvim_win_set_option(win, 'winhl', 'Normal:MyHighlight')
+    call nvim_set_current_win(win)
 
     let cmd =  'grep -rw "' . a:pattern . '" *'
     let opt = { 'on_exit': 'OnExitSuppressProcessExitedWith0' }
@@ -957,3 +963,4 @@ if !exists("g:VimEnter_Initialized") || g:VimEnter_Initialized
     call VimEnter_Initialize() " Allow source .vimrc to work
 end
 
+autocmd FileType perl :setlocal iskeyword-=:

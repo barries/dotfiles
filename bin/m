@@ -1,1 +1,6 @@
-make -j 8 STRIP=arm-linux-gnueabihf-strip BAG_MANAGER_EXECUTABLE_HOST=10.180.200.82 WARNINGS_AS_ERRORS=0 NOSAN=nosan PLATFORM=testpcba NOHUP_LOG_DIR=/home/barries/logs run_BagManagerExecutable 'ARGS= -a BagManagerExecutable=10.180.200.82 -a EventRecorder=10.180.200.254 -l - BagManagerIOSimulator_no_shuttle_motor.lua  run_bldc.lua'
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
+make --jobs=9 "$@"

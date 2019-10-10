@@ -34,8 +34,10 @@ export GTEST_COLOR=1
 export "GDB_FLAGS=-ex 'catch throw' -ex 'set confirm off' -ex 'set pagination off' -ex run"
 export "GDB_AUTORUN_FLAGS=$GDB_FLAGS ex-ex run -ex bt -ex q"
 
-if xlsatoms -name PRIMARY 2>/dev/null ; then
-    env | grep DISPLAY | perl -ne 'print "export $_"' > ~/tmp/DISPLAY.sh
-elif [ -s ~/tmp/DISPLAY.sh ] ; then
-    . ~/tmp/DISPLAY.sh
-fi
+#export CCACHE=enable
+
+#if xlsatoms -name PRIMARY 2>/dev/null ; then
+#    env | grep DISPLAY | perl -ne 'print "export $_"' > ~/tmp/DISPLAY.sh
+#elif [ -s ~/tmp/DISPLAY.sh ] ; then
+#    . ~/tmp/DISPLAY.sh
+#fi

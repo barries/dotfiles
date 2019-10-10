@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-set -e
-set -o pipefail
-set -x
+set -eo pipefail
+shopt -s nullglob
 
 git remote prune origin
 
@@ -11,7 +10,7 @@ git remote prune origin
 
 git branch -r \
     | awk '{print $1}' \
-    | egrep -v -f /dev/fd/0 <( \
+    | grep -Ev -f /dev/fd/0 <( \
         git branch -vv         \
         | grep -v '^\*'        \
         | grep origin          \

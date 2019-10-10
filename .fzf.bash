@@ -1,7 +1,7 @@
 # Setup fzf
 # ---------
 if [[ ! "$PATH" == */home/barries/.fzf/bin* ]]; then
-  export PATH="$PATH:/home/barries/.fzf/bin"
+  export PATH="${PATH:+${PATH}:}/home/barries/.fzf/bin"
 fi
 
 # Auto-completion
@@ -11,4 +11,3 @@ fi
 # Key bindings
 # ------------
 source "/home/barries/.fzf/shell/key-bindings.bash"
-

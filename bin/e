@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 
-set -e
-set -o pipefail
-set -x
+set -eo pipefail
+shopt -s nullglob
 
 EDITOR=${EDITOR:=nvim}
 
-if [[ -e $NVIM_LISTEN_ADDRESS ]]; then
-    nvr -cc wincmd\ p -O "$@"
+VIM_OPTIONS=
+
+if [[ $# -ne 0 && $EDITOR == *"vim"* ]]; then
+    VIM_OPTIONS="-O "
+fi
+
+if [[ $EDITOR == *"nvim"* && -e $NVIM_LISTEN_ADDRESS ]]; then
+    if [[ $# -ne 0 ]]; then
+        nvr -cc wincmd\ p $VIM_OPTIONS "$@"
+    else
+        nvr -cc vnew $VIM_OPTIONS "$@"
+    fi
 else
-    $EDITOR -O "$@"
+    $EDITOR $VIM_OPTIONS "$@"
 fi

@@ -1,5 +1,9 @@
-if [[ "$@" = "" ]]
-then
+#!/usr/bin/env bash
+
+set -euo pipefail
+shopt -s nullglob
+
+if [[ $# -eq 0 ]]; then
     git add -N .
 else
     git add -N "$@"
