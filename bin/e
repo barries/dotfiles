@@ -2,21 +2,25 @@
 
 set -eo pipefail
 shopt -s nullglob
+set -u
 
 EDITOR=${EDITOR:=nvim}
 
 VIM_OPTIONS=
 
-if [[ $# -ne 0 && $EDITOR == *"vim"* ]]; then
+if [[ $# -ne 0 && $EDITOR == *"vim"* && $1 != "-d" ]]; then
     VIM_OPTIONS="-O "
 fi
 
+NVIM_LISTEN_ADDRESS=${NVIM_LISTEN_ADDRESS:-}
+
 if [[ $EDITOR == *"nvim"* && -e $NVIM_LISTEN_ADDRESS ]]; then
-    if [[ $# -ne 0 ]]; then
-        nvr -cc wincmd\ p $VIM_OPTIONS "$@"
-    else
-        nvr -cc vnew $VIM_OPTIONS "$@"
+    ADDITIONAL_OPTS=""
+    if [[ $# -eq 0 ]]; then
+        ADDITIONAL_OPTS="-cc vnew"
     fi
+
+    nvr -cc wincmd\ p -cc "aug nvr" -cc "au nvr WinEnter * wincmd =" -c "au! nvr" $VIM_OPTIONS $ADDITIONAL_OPTS "$@"
 else
     $EDITOR $VIM_OPTIONS "$@"
 fi
