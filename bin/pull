@@ -3,4 +3,5 @@
 set -euo pipefail
 shopt -s nullglob
 
-git pull
+fetch
+git merge -m "pull" "origin/"`git branch --show-current`

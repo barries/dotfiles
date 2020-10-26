@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+shopt -s nullglob
+
+DIR=$1; shift
+CMD=$1; shift
+
+ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -*)
+            ARGS+=("$1")
+            ;;
+        *)
+            ARGS+=("$DIR$1")
+            ARGS+=("$1")
+            ;;
+    esac
+    shift;
+done
+
+set -x
+"$CMD" "${ARGS[@]}"

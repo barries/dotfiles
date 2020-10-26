@@ -1,0 +1,111 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use POSIX qw( isatty );
+use List::Util qw( first min );
+
+my $fn = shift;
+
+my $skeleton_path = "new_user_skeleton/$fn";
+
+my @target_fns = glob "/home/*/$fn";
+
+sub read_file {
+    my ($fn) = @_;
+    local $/;
+    open my $fh, "<", $fn or die "$!: $fn\n";
+    return <$fh>;
+}
+
+my %histo;
+my %target_fns_by_diff;
+my @cat_commands;
+my $is_first = 1;
+
+for my $target_fn (@target_fns) {
+    if ($target_fn =~ /barries/) {
+        next;
+    }
+
+    my $full_diff = `diff -u $target_fn $fn`;
+    if (($full_diff =~ tr/\n//) == 0) {
+        print "skipping, up to date: $target_fn\n";
+        next;
+    }
+
+    my $skeleton_diff = `diff -u $target_fn $skeleton_path`;
+    my $num_diff_lines = ($skeleton_diff =~ tr/\n//);
+
+    if ($num_diff_lines == 0) {
+        push @cat_commands, "cat $fn > $target_fn";
+        next;
+    }
+
+    if (isatty(*STDIN)) {
+        while (1) {
+            if ($is_first) {
+                $is_first = 0;
+                print "Difference from $skeleton_path found.\n";
+            }
+            print "$target_fn: $num_diff_lines (c, d, h, ?, m, n, q)> ";
+            my $input = <>;
+            chomp $input;
+
+            if ($input eq "c") {
+                my $rc = system("cp", $skeleton_path, $target_fn);
+                if ($rc != 0) {
+                    warn "cp $skeleton_path $target_fn returned ", $! || ($? >> 8), "\n";
+                }
+                $skeleton_diff = `diff -u $target_fn $skeleton_path`;
+                $num_diff_lines = ($skeleton_diff =~ tr/\n//);
+            }
+            elsif ($input eq "d") {
+                my $s = $skeleton_diff;
+                $s =~ s/^/    /mg;
+                print $s;
+            }
+            elsif ($input eq "h" || $input eq "?") {
+                print "    c    copy\n    d    diff\n    h, ? help\n    m    merge\n    n    next\n    q    quit\n";
+            }
+            elsif ($input eq "m") {
+                my $rc = system "e", "-d", $skeleton_path, $target_fn;
+                if ($rc != 0) {
+                    warn "e -d $skeleton_path $target_fn returned ", $! || ($? >> 8), "\n";
+                }
+                $skeleton_diff = `diff -u $target_fn $skeleton_path`;
+                $num_diff_lines = ($skeleton_diff =~ tr/\n//);
+            }
+            elsif ($input eq "n") {
+                last;
+            }
+            elsif ($input eq "q") {
+                exit 0;
+            }
+            else {
+                warn "    invalid input: \"$input\"\n";
+            }
+        }
+    }
+
+    push @{$target_fns_by_diff{$skeleton_diff}}, $target_fn;
+    push @{$histo{$num_diff_lines}}, $skeleton_diff
+}
+
+if (!isatty(\*STDIN)) {
+    for my $num_diff_lines (sort { $a <=> $b } keys %histo) {
+        printf("%3d: %s\n", $num_diff_lines, join(", ", map(@{$target_fns_by_diff{$_}}, @{$histo{$num_diff_lines}})));
+    }
+
+    my $skeleton_diff = shift @{$histo{min keys %histo}};
+    my @fns = @{$target_fns_by_diff{$skeleton_diff}};
+    print "diffs from $skeleton_path:\n";
+    print join(", ", @fns), ":\n", $skeleton_diff;
+}
+
+if (@cat_commands) {
+    print "Run these commands to propagate:\n";
+    push @cat_commands, "cat $fn > $skeleton_path";
+    print "    $_\n" for @cat_commands;
+}

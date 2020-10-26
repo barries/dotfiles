@@ -3,4 +3,4 @@
 set -eo pipefail
 shopt -s nullglob
 
-git push "$@"
+diff -Nruw "$1/$2" "./$2"

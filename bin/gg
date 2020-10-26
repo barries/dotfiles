@@ -3,6 +3,6 @@
 set -eo pipefail
 shopt -s nullglob
 
-FORMAT="%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ci, %cr) %C(bold blue)<%an>%Creset"
+FORMAT="%Cred%h%Creset - %s %C(243)(%C(bold yellow)%(trailers:key=branch,valueonly,separator=)%C(243), %C(bold blue)%an%C(243), %cr at %ci)%Creset%C(yellow)%d%Creset"
 
-git log --graph --abbrev-commit --date-order "--pretty=format:$FORMAT" "$@"
+git log --graph --abbrev-commit "--pretty=format:$FORMAT" "$@"

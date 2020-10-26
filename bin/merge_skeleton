@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
+SKELETON=$1
+USER_EDITED=$2
+BASE=$3
+MERGED=../tmp/merged
+
+TOOLLIB=../Tools/ivcg/lib
+
+# printf %q: quote options for later evals
+# -M ... -c set modifiable -c set write: mark all files as not modifiable, then make the output file modifiable
+
+# see also the if &diff ... "set cursorline" ... end in my .vimrc
+
+printf -v OPTS       -- '-M -d -c %q -c %q -c %q'             "wincmd l"   "set modifiable" "set write"
+printf -v OPTS_3_WAY -- '-M -d -c %q -c %q -c %q -c %q -c %q' "3 wincmd l" "set modifiable" "set write" "wincmd J" "wincmd ="
+
+# ignore "Double quote to prevent globbing and word splitting.", $OPTS needs to be split
+# shellcheck disable=SC2086
+
+if [[ "$#" -le 2 ]]; then
+    eval nvim $OPTS "$SKELETON" "$USER_EDITED"
+else
+    perl -I$TOOLLIB -MIV::CG::Merge -e 'merge3_files @ARGV' "$SKELETON" "$BASE" "$USER_EDITED" "$MERGED"
+    eval nvim $OPTS_3_WAY "$SKELETON" "$BASE" "$USER_EDITED" "$MERGED"
+    if [[ -s ../tmp/merged ]]; then
+        if ! cmp "$MERGED" "$USER_EDITED" > /dev/null; then
+            cp "$MERGED" "$USER_EDITED"
+        fi
+    fi
+fi

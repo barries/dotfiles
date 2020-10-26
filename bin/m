@@ -3,4 +3,6 @@
 set -eo pipefail
 shopt -s nullglob
 
-make --jobs=9 "$@"
+CORES=`lscpu | perl -ne 'chomp, print $_ if s/^CPU\(s\) *: *//;'`
+
+make --jobs=$CORES "$@"

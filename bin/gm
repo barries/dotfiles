@@ -1,12 +1,51 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 shopt -s nullglob
 
+ARGS=()
 if [[ $# -eq 0 ]]; then
     BRANCH=`git branch --all | perl -pe 's/^\\h+//; s/\\h+$//;' | fzf`
+    ARGS+=($BRANCH)
 else
-    BRANCH="origin/$1"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -*)
+                ARGS+=("$1")
+                ;;
+            origin/*)
+                BRANCH="$1"
+                ARGS+=($BRANCH)
+                shift
+                break 2
+                ;;
+            *)
+                BRANCH="$1"
+                shift
+
+                BRANCHES=`git for-each-ref "refs/heads/$BRANCH" "refs/remotes/*/$BRANCH" | perl -lane '$h{$F[0]}++; END { print for sort keys %h; }'`
+                BRANCHES=( $BRANCHES )
+                if [[ ${#BRANCHES[@]} > 1 ]]; then
+                    echo "error: ${#BRANCHES[@]} branches found" 1>&2
+                    git for-each-ref "refs/heads/$BRANCH" "refs/remotes/*/$BRANCH" | perl -lane '$F[2] =~ s{refs/\w+/}{}; print "$F[0] $F[2]"'
+                    exit 1
+                fi
+                BRANCH=`git for-each-ref "refs/heads/$BRANCH" "refs/remotes/*/$BRANCH" | perl -lane '$F[2] =~ s{refs/\w+/}{}; print $F[2]' | tail -n 1`
+
+                ARGS+=($BRANCH)
+                break 2;
+        esac
+        shift;
+    done
+
+    while [ $# -gt 0 ]; do
+        ARGS+=($1)
+        shift;
+    done
+
 fi
 
-git fetch && git merge "$BRANCH"
+BRANCH_NAME=${BRANCH##*/}
+
+fetch
+git merge --no-commit -m "(merge $BRANCH_NAME -> `git branch --show-current`)" "${ARGS[@]}"

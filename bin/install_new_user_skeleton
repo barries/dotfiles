@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
+NEW_USER_ID=$1
+
+sudo -u $NEW_USER_ID rsync -aq new_user_skeleton/ /home/$NEW_USER_ID
+
+sudo -u $NEW_USER_ID perl -i -pe "s{<NEW_USER_ID>}{$NEW_USER_ID}" /home/$NEW_USER_ID/.vimrc
+
+sudo -u $NEW_USER_ID ssh-keygen

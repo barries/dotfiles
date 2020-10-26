@@ -9,14 +9,14 @@ use strict;
 
 use File::Basename qw(basename fileparse);
 use File::Find;
-use File::Temp qw(tempfile);
-use File::Path qw(mkpath);
-use Getopt::Long qw(:config require_order); # require_order: stop options on first non-option, which is a command name
+use File::Temp     qw(tempfile);
+use File::Path     qw(mkpath);
+use Getopt::Long   qw(:config auto_help require_order); # require_order: stop options on first non-option, which is a command name
 use IPC::Open3;
-use List::Util qw(min max sum);
-use Symbol qw(gensym);
+use List::Util     qw(min max sum);
+use Symbol         qw(gensym);
 use Term::ReadKey;
-use Time::HiRes qw( sleep );
+use Time::HiRes    qw(sleep);
 
 use constant {
     MIN_NUM_SKIPPED        =>  3, # Don't hide chunks <= this number
@@ -25,7 +25,7 @@ use constant {
     MAX_READKEY_TIMEOUT    =>  0.1,  # 0.1: Once user stops changing things, reduce CPU%
 };
 
-use constant ERROR_SEARCH_PATTERN => "^(?:error|ERROR)[^a-zA-Z_]|\\b(?:error|ERROR):|(?i:failure|failed|segmentation fault|SEGFAULT)/";
+use constant ERROR_SEARCH_PATTERN => "^(?:error|ERROR)[^a-zA-Z_]|\\b(?:error|ERROR):|\\b(?i:failure|failed|segmentation fault|SEGFAULT|TestFailure)\\b/";
 
 my $prog_name = basename $0;
 
@@ -37,57 +37,83 @@ sub usage {
     exit shift;
 }
 
-sub help {
-    print <<HERE_DOC;
+=HEAD1 Name
 
-$prog_name ...options... -c command
-$prog_name ...options... <command_string>  # Will launch "bash -c <command_string>"
-$prog_name ...options... ...command...
+on_change - run a command and re-run it when files change
+
+=HEAD2 SYNOPSIS
+
+    on_change <options> ...command...
+    on_change <options> '...command...'
+
+    on_change ...options... -c command
+    on_change ...options... <command_string>  # Will launch "bash -c <command_string>"
+    on_change ...options... ...command...
 
 Options:
-
-    -c, --command <command_line>    Spawn bash -c <command_line>.
-
-    -l <log_file>                   Log to <log_file> (defaults to ~/tmp/on_change/on_change.log)
-
-    -x, --exit                      Exit once command succeeds
-
-    -w, --watch <path>              Watch <path> for changes. If path is a dir,
-                                    watch all files and dirs in it. Can specify
-                                    multiple times for multiple <path>s.
-                                    Overrides ON_CHANGE_WATCH.
-
 
     -R                              Strip escape codes (i.e. decolorize). This
                                     is inspired by less's -R. This can also be
                                     typed inside the tool to toggle colorization
                                     on and off.
 
-    ?, --help                       (this help text)
+    -c, --command <command_line>    Spawn bash -c <command_line>.
+
+    -h, --help                      (this help text)
+
+    -l <log_file>                   Log raw text (with escape codes) to <log_file> (defaults to ~/tmp/on_change.log)
+
+    -o, --output <filename>         Log de-escaped text to <filename> (defaults to ~/tmp/on_change.txt)
+
+    -q, --quiet                     Don't emit in-process output to screen
+
+    -w, --watch <path>              Watch <path> for changes. If path is a dir,
+                                    watch all files and dirs in it. Can specify
+                                    multiple times for multiple <path>s.
+                                    Overrides ON_CHANGE_WATCH.
+
+    -x, --exit                      Exit once command succeeds
+
+(use the 'h' key when running to see interactive commands)
 
 Environment Variables:
 
-    ON_CHANGE_WATCH=<paths>         A semicolon separated list of paths to
-                                    watch if no -w options are supplied on the
-                                    command line.
-HERE_DOC
+    ON_CHANGE_WATCH=<paths>   A semicolon separated list of paths to
+                              watch if no -w options are supplied on the
+                              command line.
 
-    exit 0;
-}
+    ON_CHANGE_DIR=<dir>       The directory to place on_change* working files.
+
+                              Defaults to ~/tmp/
+
+$ON_CHANGE_DIR Files:
+
+    on_change.log            Raw output (including escape codes)
+    on_change.txt            Output stripped of escape codes
+    on_change_command.txt    Command line being run (edit to change)
+
+=cut
 
 my @cmd;
+
+my $ON_CHANGE_DIR = $ENV{ON_CHANGE_DIR} // "$ENV{HOME}/tmp";
 
 GetOptions(
     "c|command=s"   => sub {
         die "multiple -$_[0] not allowed\n" if @cmd;
         @cmd = ($_[1]);
     },
-    "h|?|help"            => \&help,
-    "l|log-file=s"        => \(my $log_file_opt = "$ENV{HOME}/tmp/on_change/on_change.log"),
+    "l|log-file=s"        => \(my $log_file_opt = "$ON_CHANGE_DIR/on_change.log"),
+    "o|output=s"          => \(my $output_opt   = "$ON_CHANGE_DIR/on_change.txt"),
+    "q|quiet"             => \my $quiet_opt,
     "x|exit"              => \my $exit_opt,
     "R|RAW-CONTROL-CHARS" => \my $RAW_opt,
     "w|watch=s"           => \my @watch_paths,
 ) or usage(1);
+
+while (@ARGV && -d $ARGV[0]) {
+    push @watch_paths, shift @ARGV;
+}
 
 if (@ARGV) {
     if (@cmd) {
@@ -97,11 +123,17 @@ if (@ARGV) {
     @cmd = @ARGV;
 }
 
+my $command_fn = "$ON_CHANGE_DIR/on_change_command.txt";
 @watch_paths = split /;/, ($ENV{ON_CHANGE_WATCH} // "") unless @watch_paths;
 @watch_paths = (".") unless @watch_paths;
 
 usage(1) unless @cmd;
 
+my $command = (@cmd > 1)
+    ? join " ", map shellquote($_), @cmd
+    : $cmd[0];
+
+trim_command();
 
 BEGIN {
     $| = 1; # Autoflush
@@ -139,10 +171,8 @@ my $SEARCH_CURRENT_MATCH_LINE_BG = $GREY_236;
 my $SEARCH_OTHER_MATCH_LINE_BG   = $GREY_234;
 
 my @all_lines;
-my $cmd_result;
+my $command_result;
 my $err_msg = "";
-my $filter;
-my $filter_enabled = 0;
 my $first_line_to_show = 0;
 my $first_col_to_show = 0;
 my @lines;
@@ -169,17 +199,21 @@ sub fingerprints {
     find {
         no_chdir => 1,
         wanted => sub {
-            if (m{/tmp/|/cg/|/CodeGen/|/\.|\A\.[^/.]}) {
+            if (m{/cg\b|/CodeGen\b|/\.|\A\.[^/.]}) {
                 $File::Find::prune = 1;
                 return;
             }
 
-            my $f = (stat($_))[7] + (stat(_))[9];
-            if (!$fingerprints{$_} || $fingerprints{$_} != $f) {
-                push @changed, $_ if $fingerprints{$_};
-                $fingerprints{$_} = $f;
+            if (!-d $_) {
+                my $f = (-e $_ && stat(_))[7] + (stat(_))[9];
+                if (!$fingerprints{$_} || $fingerprints{$_} != $f) {
+                    my $fn = $_;
+                    $fn =~ s{^\/}{};
+                    push @changed, $fn if $fingerprints{$fn};
+                    $fingerprints{$fn} = $f;
+                }
+                $fingerprint += $f;
             }
-            $fingerprint += $f;
         }
     },
     map glob, @_;
@@ -236,87 +270,33 @@ sub max_col_to_show() {
     return max(0, max_col - $term_cols);
 }
 
+sub shellquote {
+    my ($s) = @_;
+    return $s unless !length $s || $s =~ /[<>(){}\s|;&\$*?\\"'`]/;
+
+    my $single_quoted = do {
+        $_ = $s;
+        s{'}{'\\''}g;
+        qq{'$_'};
+    };
+
+    my $double_quoted = do {
+        $_ = $s;
+        s{([\$`\\"!])}{\\$1}g;
+        qq{"$_"};
+    };
+
+    return length $single_quoted < length $double_quoted
+        ? $single_quoted
+        : $double_quoted;
+}
+
 ##############################################################################
 
 sub deescape {
     my $msg = join "", @_;
     $msg =~ s{\e.*?m}{}g;
     return $msg;
-}
-
-##############################################################################
-# Filtering
-
-sub filter_out_lower_priority_errors { # TODO: make this configurable at runtime, build a library of filters
-    my ($lines) = @_;
-    my @result;
-
-    my $state = "discarding";
-    for (@$lines) {
-        if (/error:/) {
-            $state = !/clang.*(misc|performance|cppcoreguidelines|modernize)/ # Ignore less significant, not-likely-to-be-causal errors
-                ? "keeping"
-                : "discarding";
-        }
-
-        if ($state eq "keeping") {
-            push @result, $_;
-        }
-
-    }
-
-    return \@result;
-}
-
-sub filter_unique_errors { # TODO: make this configurable at runtime, build a library of filters
-    my ($lines) = @_;
-    my @result;
-
-    my %seen;
-
-    my @accum;
-
-    my $flush = sub {
-        if (@accum) {
-            my $key = join "", @accum;
-            $key =~ s/\[clang-tidy[^\]]+\]//g; # clang-tidy reports different rules unpredictably
-            if (!$seen{$key}++) {
-                push @result, @accum;
-            }
-            @accum = ();
-        }
-    };
-
-    my $state = "discarding";
-    for (@$lines) {
-        if (/ (error|note|warning): /) {
-            $flush->();
-            push @accum, $_;
-            next;
-        }
-
-        if (@accum) {
-            push @accum, $_;
-
-            if (/^[\h~]+^/) {
-                $flush->();
-            }
-        }
-        else {
-            push @result, $_;
-        }
-
-    }
-
-    push @result, @accum;
-
-    return \@result;
-}
-
-sub filter {
-    @lines = $filter_enabled
-        ? @{$filter->(\@all_lines)}
-        : @all_lines;
 }
 
 ##############################################################################
@@ -338,7 +318,7 @@ sub search {
     }
     $pattern //= $search_re;
 
-    die "not set: search pattern" unless $pattern;
+    warn "not set: search pattern" unless $pattern;
 
     my $re = ref $pattern ? $pattern : qr{$pattern};
 
@@ -360,7 +340,7 @@ sub search {
                 $first_line_to_show = $i - (num_visible_lines - 1);
             }
             $first_line_to_show = min(max_first_line_to_show, first_line_to_show);
-            $search_match_line  = $i;
+            $search_match_line = $i;
             return ($dir, $re);
         }
     }
@@ -491,16 +471,12 @@ sub save_line {
     my ($line) = join "", @_;
 
     push @all_lines, $line;
-    push @lines, $line; # Don't filter while building, it can be very useful to see the scroll
+    push @lines, $line;
 
-    print $line;
+    print $line unless $quiet_opt || @lines >= $term_lines;
 }
 
-sub save_cmd {
-    save_line "\$ ", join(" ", @cmd), "$RESET\n";
-}
-
-sub print_watching {
+sub print_status_bar {
     my $msg = "";
 
     my $COLOR = $DK_BLUE;
@@ -513,9 +489,6 @@ sub print_watching {
         " (of ",
         0+@lines,
         ")",
-        $filter_enabled
-            ? " ${GREEN}(filtered from " . (0+@all_lines) . ")$COLOR"
-            :(),
         $c != 1
             ? (
                 ", cols ",
@@ -537,11 +510,11 @@ sub print_watching {
     }
 
     my $em = join("; ", map "$RED$_$COLOR", grep length,
-        $cmd_result
+        $command_result
             ? "return code: " . (
-                ($cmd_result & 0xFF)
-                    ? ("(" . ($cmd_result >> 8) . "," . ($cmd_result & 0xFF) . ")")
-                    : ($cmd_result >> 8)
+                ($command_result & 0xFF)
+                    ? ("(" . ($command_result >> 8) . "," . ($command_result & 0xFF) . ")")
+                    : ($command_result >> 8)
             )
             : (),
         $err_msg,
@@ -558,7 +531,7 @@ sub redraw {
     poll_terminal_size();
     cls;
     print_visible_lines;
-    print_watching;
+    print_status_bar;
     $nav_err_msg = "";
 }
 
@@ -576,27 +549,45 @@ sub run_cmd {
     {
         my $fh = gensym;
 
-        my $use_shell = (@cmd == 1);
+        1 while chomp $command;
 
-        $pid = open3(undef, $fh, $fh, $use_shell ? ("bash", "-c") : (), @cmd);
+        my $command_line = "\$ $command";
+
+        print $command_line, "\n" if $quiet_opt;
+
+        save_line $command_line, "$RESET\n";
+        $pid = open3(undef, $fh, $fh, "bash", "-c", $command);
 
         my %seen;
 
-        my $log_fh;
+        my $log_file_fh;
+        my $output_fh;
 
         if (defined $log_file_opt) {
             my ($fn, $dir, $ext) = fileparse($log_file_opt);
             if (!-d $dir) {
                 mkpath $dir or die "$!: $dir\n";
             }
-            open $log_fh, ">", $log_file_opt
+            open $log_file_fh, ">", $log_file_opt
                 or $err_msg = "$!: $log_file_opt\n";
 
-            print $log_fh "\$ ", join " ", @cmd;
+            print $log_file_fh $command_line, "\n";
+        }
+
+        if (defined $output_opt) {
+            my ($fn, $dir, $ext) = fileparse($output_opt);
+            if (!-d $dir) {
+                mkpath $dir or die "$!: $dir\n";
+            }
+            open $output_fh, ">", $output_opt
+                or $err_msg = "$!: $output_opt\n";
+
+            print $output_fh $command_line, "\n";
         }
 
         while (<$fh>) {
-            print $log_fh $_ if $log_fh;
+            print $log_file_fh          $_  if $log_file_fh;
+            print $output_fh   deescape($_) if $log_file_fh;
             next if /SYSPROGS/ || (/iv_analyze_code: skipping/ && $seen{$_}++); # TODO: remove when no longer needed
             save_line($_);
         }
@@ -604,13 +595,30 @@ sub run_cmd {
 
     waitpid($pid, 0);
 
-    $cmd_result = $?;
+    $command_result = $?;
 
-    return $cmd_result == 0;
+    return $command_result == 0;
 }
 
 sub waitforkey {
     return readkey(0); # 0: getc(), blocking
+}
+
+sub read_command_file {
+    open my $cfh, "<", $command_fn or die "$!: $command_fn\n";
+    local $/;
+    $command = <$cfh>;
+    trim_command();
+}
+
+sub trim_command {
+    $command =~ s/^\s+//;
+    $command =~ s/\s+$//;
+}
+
+sub write_command_file {
+    open my $cfh, ">", $command_fn or die "$!: $command_fn\n";
+    print $cfh $command, "\n";
 }
 
 sub ask {
@@ -623,10 +631,12 @@ sub ask {
 
 ################################################################################
 
-$filter = \&filter_out_lower_priority_errors;
+write_command_file();
+
 my $fingerprint = fingerprints(@watch_paths);
 
 my $is_first = 1;
+my $fingerprint_changed_during_command = 0;
 
 while (1) {
     ReadMode 0;
@@ -647,18 +657,20 @@ while (1) {
         print_msg_bar($DK_BLUE, " ", "");
     }
     print "\n";
-    $is_first = 0;
-
-    save_cmd;
 
     my @most_recent_changed = splice(@changed);
+    if ($fingerprint_changed_during_command && @most_recent_changed) {
+        # It's often unclear why remakes are occurring.
+        print "\nChanged files:\n", map "    $_\n", @most_recent_changed;
+        print "\n";
+    }
+
+    $is_first = 0;
 
     my $ran_ok = run_cmd();
     if ($ran_ok && $exit_opt) {
         last;
     }
-
-    filter();
 
     if ($search_re) {
         if ($ran_ok && $search_pattern eq "/" . ERROR_SEARCH_PATTERN) {
@@ -705,7 +717,9 @@ while (1) {
 
     my $prev_fingerprints = $fingerprint;
 
+    $fingerprint_changed_during_command = 1;
     while (($fingerprint = fingerprints(@watch_paths)) == $prev_fingerprints) {
+        $fingerprint_changed_during_command = 0;
         my $key = readkey;
 
         if ($timeout < MAX_READKEY_TIMEOUT) {
@@ -732,10 +746,12 @@ while (1) {
             $err_msg = "";
             print "\n";
             print <<HELP_TEXT;
-e       Edit output in \$EDITOR
+c       Edit the command (opens a new window when in neovim, using `e`)
+e       Edit output in \$EDITOR (opens a new window when in neovim, using `nvr`)
 h       Help (includes list of most recently changed files)
 l       View output in \$PAGER
-w       Write output to a file
+o       Write output to a file every re-run
+w       Write output to a file once
 
 /<re>   Search for a Perl <re>, forward (/) or backwards (/)
 ?<re>   Search for a Perl <re>, forward (/) or backwards (/)
@@ -760,6 +776,10 @@ HELP_TEXT
             if (@most_recent_changed) {
                 print "\nChanged files:\n", map "    $_\n", @most_recent_changed;
             }
+        }
+        elsif ($key eq "\x05") { # \x05: ^E (vim for scroll Down)
+            @unknown_keys = ();
+            scroll(1);
         }
         elsif ($key eq "\x0c") { # \x0c: ^L
             @unknown_keys = ();
@@ -803,6 +823,10 @@ HELP_TEXT
 
             redraw();
         }
+        elsif ($key eq "\x19") { # \x19: ^Y (vim for scroll Up)
+            @unknown_keys = ();
+            scroll(-1);
+        }
         elsif ($key eq "\x7f") { # \x7f: <BS>
             if (@unknown_keys) {
                 pop @unknown_keys;
@@ -821,49 +845,28 @@ HELP_TEXT
             $first_col_to_show = max_col_to_show;
             redraw();
         }
-        elsif ($key eq "f") { # f: filter (experimenal, undocumented)
-            @unknown_keys = ();
-            $err_msg = "";
-
-            my $key2 = waitforkey;
-            if ($key2 eq "f") { # f: toggle on/off
-                $filter_enabled = !$filter_enabled;
-            }
-            elsif ($key2 eq "p") { # p: priority filter
-                $filter = \&filter_out_lower_priority_errors;
-                $filter_enabled = 1;
-            }
-            elsif ($key2 eq "u") { # u: uniqueness filter
-                $filter = \&filter_unique_errors;
-                $filter_enabled = 1;
-            }
-            else {
-                $err_msg = "valid filters are [p]riority and [u]niq; use [f] to toggle on/off";
-            }
-
-            if (!$filter) {
-                $err_msg = "no filter defined";
-            }
-            else {
-                filter();
-                redraw();
-            }
+        elsif ($key eq "c") { # c: edit command
+            write_command_file();
+            system("e", $command_fn);
+            read_command_file();
+            redraw();
         }
         elsif ($key eq "l" || $key eq "e") {
             @unknown_keys = ();
             $err_msg = "";
-            my ($fh, $fn) = tempfile("${prog_name}_XXXX", TMPDIR => 1, UNLINK => 1);
-            print $fh @lines;
-
             if ($key eq "e" && $ENV{NVIM_LISTEN_ADDRESS} && -e $ENV{NVIM_LISTEN_ADDRESS}) {
-                my @prog = ("nvr", "-c", ":tabnew", "-c", "set scrollback=100000", "-c", "term cat $fn", "-c", ":1", "-c", ":set laststatus=2");
+                my @prog = ("e", $output_opt);
                 system @prog
                     and $err_msg = join(" ", @prog, "returned", $? >> 8);
             }
             else {
                 cls;
-                my @prog = $key eq "l" ? ($ENV{PAGER} || ("less", "-R", "-S")) : ($ENV{EDITOR} || ("vim", "-r"));
-                system @prog, $fn
+                my @prog = (
+                    $key eq "l"
+                        ? ($ENV{PAGER}  || ("less", "-R", "-S"))
+                        : ($ENV{EDITOR} || ("vim", "-r"))
+                );
+                system @prog, $log_file_opt
                     and $err_msg = join(" ", @prog, "returned", $? >> 8);
             }
 
@@ -893,6 +896,26 @@ HELP_TEXT
             search($search_dir*-1);
             redraw();
         }
+        elsif ($key eq "o") {
+            my $fn = ask "output text (deescaped) filename? ";
+            if (length $fn) {
+                my @fns = glob($fn);
+                if (@fns == 0) {
+                    $err_msg = "file not found: $fn";
+                }
+                elsif (@fns > 1) {
+                    $err_msg = "multiple files found: " . join(" ", @fns);
+                }
+                elsif (!open my $fh, ">", $fns[0]) {
+                    $err_msg = "$!: $fns[0]";
+                }
+                else {
+                    $output_opt = $fn;
+                    print $fh map deescape($_), @lines;
+                }
+            }
+            redraw();
+        }
         elsif ($key eq "q" || $key eq "\x03") { # 0x03: ^C
             print "\n";
             exit !$ran_ok;
@@ -911,9 +934,10 @@ HELP_TEXT
                     $err_msg = "$!: $fns[0]";
                 }
                 else {
-                    print $fh @lines;
+                    print $fh map deescape($_), @lines;
                 }
             }
+            redraw();
         }
         elsif ($key eq "\e") {
             my $key2 = readkey;
@@ -1000,6 +1024,7 @@ HELP_TEXT
                 $search_pattern = "$key$s";
 
                 $search_dir = $key eq "/" ? 1 : -1;
+                $search_match_line //= 0;
                 eval {
                     ($search_dir, $search_re) = search($search_dir, $s, $search_match_line + $search_dir);
                 };

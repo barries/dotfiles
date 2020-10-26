@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+shopt -s nullglob
+
+USERID=$1
+shift;
+
+set -x
+TMUX_PATH=`ls -ld /tmp/tmux-* | grep "$USERID" | grep -o "/.*"`
+sudo tmux -S "$TMUX_PATH/default" attach

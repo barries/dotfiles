@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 shopt -s nullglob
 
-git fetch && git checkout "$@"
+if [[ $# -eq 0 ]]; then
+    BRANCH=`git branch --all | perl -pe 's/^\\h+//; s/\\h+$//;' | fzf`
+elif [[ $# -eq 1 && $1 =~ [a-zA-Z0-9_-]\+ ]]; then
+    BRANCH="$1"
+    shift
+else
+    BRANCH=
+fi
+
+BRANCH="${BRANCH##*/}"  # `##*/`: delete everthing before the final / in the branch name
+
+fetch
+
+if [[ $BRANCH == "" ]]; then
+    git checkout "$@"
+else
+    echo "$BRANCH"
+    git checkout "$BRANCH" "$@"
+    git branch "--set-upstream-to=origin/$BRANCH" "$BRANCH" # TODO (when fetch is modified to have --set-upstream): remove
+fi

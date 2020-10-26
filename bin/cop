@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 shopt -s nullglob
 
-if [[ $# -eq 0 ]]; then
-    BRANCH=`git branch --all | perl -pe 's/^\\h+//; s/\\h+$//;' | fzf`
-else
-    BRANCH="${@##*/}"
-fi
-
-git fetch && git checkout "$BRANCH" && git pull
+co "$@"
+git merge -m "pull" "origin/"`git branch --show-current`

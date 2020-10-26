@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
+gg MERGE_HEAD --first-parent --grep "(merge\|^pull$" --invert-grep

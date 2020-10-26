@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+shopt -s nullglob
+
+gm --no-ff "$@"
+ivmake complete_merge

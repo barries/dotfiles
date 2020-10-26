@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+shopt -s nullglob
+
+fetch
+git for-each-ref --sort=committerdate refs/heads/ refs/remotes --format='%(committerdate:format-local:%Y-%m-%d %H:%M:%S) %(refname)    (%(authorname))'

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -eu -o pipefail
+shopt -s nullglob
+
+TMPFILE=$(mktemp /tmp/create_new_tmux_window.rcfile.XXXXXX)
+
+cat <<RCFILE > $TMPFILE
+rm $TMPFILE
+. ~/.profile
+RCFILE
+
+NAME=$1
+shift
+
+printf "%q " bash "$@" >> $TMPFILE
+echo                   >> $TMPFILE
+
+cat $TMPFILE
+
+tmux new-window -n "$NAME"

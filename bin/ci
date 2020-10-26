@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 shopt -s nullglob
 
-
-git add -A && git commit "$@"
+git commit "$@"
+export GIT_EDITOR='git interpret-trailers --trailer "branch: $(git branch --show-current)" --in-place'
+git commit --amend --only

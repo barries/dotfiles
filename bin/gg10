@@ -3,4 +3,4 @@
 set -eo pipefail
 shopt -s nullglob
 
-git push "$@"
+gg -n 10 "$@"

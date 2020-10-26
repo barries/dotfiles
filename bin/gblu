@@ -1,0 +1,313 @@
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+
+use List::Util qw(uniq);
+
+use Getopt::Long qw(:config auto_help no_auto_abbrev no_ignore_case);
+
+=head1 NAME
+
+gblu - print list of git refs unmerged heads
+
+=head1 SYNOPSIS
+
+=head1 OPTIONS
+
+    --unreleased     List branches not merged onto a release branch
+    --merged-local   List branches not in refs/remotes/*/ and which have children
+
+=cut
+
+GetOptions(
+    "merged-local"   => \my $merged_local_opt,
+    "unreleased"     => \my $unreleased_opt,
+) or exit(1);
+
+my @branches;
+my %branches;
+my @refs;
+my %refs;
+my @heads_hashes;
+my %commits;
+
+sub branch {
+    my ($ref) = @_;
+    (my $branch_name = $ref) =~ s{(.*/)}{};
+
+    my $is_new = !$branches{$branch_name};
+
+    my $branch = $branches{$branch_name} //= {
+        branch_name => $branch_name,
+        heads       => [],
+        refs        => {},
+    };
+
+    push @branches, $branch if $is_new;
+
+    $branch->{refs}->{$ref} = 1;
+
+    $branch->{is_release_branch} ||= $branch_name =~ /^\d+(?:\.\d+){1,3}$/;
+
+    return $branch;
+}
+
+sub commit {
+    my ($hash) = @_;
+
+    my $commit = $commits{$hash} //= {
+        commit_hash   => $hash,
+        branch_names  => {},
+        child_hashes  => [],
+        is_local_only => 1,
+        parent_hashes => [],
+        refs          => {},
+    };
+
+    return $commit;
+}
+
+for (`git for-each-ref --sort=committerdate refs/heads refs/remotes`) {
+    chomp;
+    my ($commit_hash, $ref) = (split /\h+/)[0,2];
+    push @heads_hashes, $commit_hash;
+    push @refs,         $ref;
+
+    my $commit = commit($commit_hash, $ref);
+    $refs{$ref} = $commit;
+
+    my $heads = branch($ref)->{heads};
+    push @$heads, $commit
+        unless grep $_ == $commit, @$heads;
+
+    my $ref_is_local = $ref =~ "refs/heads/";
+    $commit->{is_local}      ||=  $ref_is_local;
+    $commit->{is_local_only} &&=  $ref_is_local;
+    $commit->{is_remote}     ||= !$ref_is_local;
+    $commit->{is_on_remote}  ||= !$ref_is_local;
+
+    $commit->{is_on_release_branch} = $ref =~ /\/\d+(?:\.\d+){2,3}$/;
+
+    $commit->{refs}->{$ref} = 1;
+}
+
+for (@branches) {
+    $_->{is_local}      =  grep $_->{is_local},  @{$_->{heads}};
+    $_->{is_local_only} = !grep $_->{is_remote}, @{$_->{heads}};
+    $_->{is_remote}     =  grep $_->{is_remote}, @{$_->{heads}};
+}
+
+@heads_hashes = uniq @heads_hashes;
+
+my $offset = 0;
+for (`git rev-list --parents --topo-order @heads_hashes`) {
+    chomp;
+    my ($child_hash, @parent_hashes) = split /\h+/, $_;
+    my $commit = commit($child_hash);
+    $commit->{parent_hashes} = \@parent_hashes;
+    $commit->{is_merge}      = @parent_hashes > 1;
+    $commit->{offset}      = $offset++;
+    for (@parent_hashes) {
+        push @{commit($_)->{child_hashes}}, $child_hash;
+    }
+}
+
+if ($merged_local_opt) {
+    for (@branches) {
+        if ($_->{is_local_only} && @{$_->{heads}->[0]->{child_hashes}}) {
+            print "$_->{branch_name}\n";
+        }
+    }
+}
+
+    my @heads = map @{$_->{heads}}, @branches;
+
+    { # propagate is_on_release_branch
+        my @q = map @{$_->{heads}}, grep $_->{is_release_branch}, @branches;
+        while (@q) {
+            my $c = shift @q;
+            $c->{is_on_release_branch} = 1;
+            push @q,
+                grep !$_->{is_on_release_branch},
+                map $commits{$_}, @{$c->{parent_hashes}};
+        }
+    }
+
+    { # mark remote commits, so local heads that are behind remote heads are flagged as remote
+        my @q = grep $_->{is_on_remote}, @heads;
+        while (@q) {
+            my $c = shift @q;
+            $c->{is_on_remote} = 1;
+            push @q,
+                grep !$_->{is_on_remote},
+                map $commits{$_}, @{$c->{parent_hashes}};
+        }
+    }
+
+    my @unmerged_heads = grep !$_->{is_on_release_branch} && !$_->{is_on_remote}, @heads;
+
+    # Ignore branches that were only merged into since a commit that was released
+    @unmerged_heads = grep {
+        my $head = $_;
+        my $c = $_;
+        while ($c && $c->{is_merge}) {
+            $c = $commits{$c->{parent_hashes}->[0]};
+        }
+        !($c && $c->{is_on_release_branch});
+    } @unmerged_heads;
+
+    $_->{is_unmerged_head} = 1 for @unmerged_heads;
+
+if ($unreleased_opt) {
+    my $FORMAT="%Cred%h%Creset - %s %C(243)(%C(bold yellow)%(trailers:key=branch,valueonly,separator=)%C(243), %C(bold blue)%an%C(243), %cr at %ci)%Creset%C(yellow)%d%Creset";
+
+    for (@unmerged_heads) {
+        my $key = (%{$_->{branch_names} // {}} == 1 && grep /origin/, keys %{$_->{refs}})
+            ? "branch_names"
+            : "refs";
+
+        print substr($_->{commit_hash}, 0, 8), " ", join(" ", keys %{$_->{$key}}), "\n";
+    }
+}
+
+my @remote_branch_hashes = do {
+    my %seen;
+    grep !$seen{$_}++,
+        map $_->{commit_hash},
+        grep $_->{is_remote},
+        map @{$_->{heads}},
+        @branches;
+};
+
+for (`git for-each-ref --sort=committerdate refs/heads/ refs/remotes --format='%(objectname)\t%(committerdate:format-local:%Y-%m-%d %H:%M:%S)\t%(authorname)\t%(contents:subject)'`) {
+    chomp;
+    my ($hash, $date, $author, $subject) = split /\t/, $_, 4;
+    my $commit = $commits{$hash};
+    $commit->{author}  = $author;
+    $commit->{date}    = $date;
+    $commit->{subject} = $subject;
+}
+
+my @w;
+my @rows;
+for my $branch (@branches) {
+    # technically, there should not be more than one local and one remote hash, but it *could* happen with multiple remotes
+
+    my @heads = sort {
+           $a->{is_local } <=> $b->{is_local } # local releases last
+        || $a->{offset   } <=> $b->{offset   } # children before parents
+        || $a->{hash_code} cmp $b->{hash_code} # tie breaker, for stability
+    } uniq @{$branch->{heads}};
+
+    my @flags;
+
+    if ($branch->{is_local_only}) {
+        push @flags, "local_only";
+    }
+
+    my $cmp = "";
+
+    if (@heads >= 2 && $heads[-1]->{is_local}) {
+        my $local_can_ff;
+        my $remote_can_ff;
+
+        my @h = @heads[0..$#heads-1];
+        my @q = @h;
+        my $l = $heads[-1];
+        my %seen;
+        while (@q) {
+            my $c = shift @q;
+            $seen{int $c}++;
+            if ($c == $l) {
+                $l->{can_ff} = 1;
+                $local_can_ff = 1;
+                last;
+            }
+            push @q, grep !$seen{int $_}++, map $commits{$_}, @{$c->{parent_hashes}};
+        }
+
+        %seen = ();
+        @q = $l;
+        LOOP:
+        while (@q) {
+            my $c = shift @q;
+            $seen{int $c}++;
+
+            for (@h) {
+                if ($_ == $c) {
+                    $_->{can_ff} = 1;
+                    $remote_can_ff = 1;
+                    if (!grep !$_->{can_ff}, @h) {
+                        last LOOP;
+                    }
+                }
+            }
+
+            push @q, grep !$seen{int $_}++, map $commits{$_}, @{$c->{parent_hashes}};
+        }
+
+        if ($local_can_ff) {
+            $cmp = ">";
+        }
+        elsif ($remote_can_ff) {
+            $cmp = "<";
+        }
+        else {
+            $cmp = "X";
+        }
+    }
+
+    $branch->{has_unreleased_heads} =  grep !$_->{is_on_release_branch}, @{$branch->{heads}};
+    $branch->{is_unreleased}        = !grep  $_->{is_on_release_branch}, @{$branch->{heads}};
+
+    my @h = map {
+        my $h = substr($_->{commit_hash}, 0, 8);
+        my @f;
+
+        if (!@{$_->{child_hashes}} && !$_->{is_on_release_branch}) {
+            push @f, "h";
+        }
+
+        if (@f) {
+            local $" = "";
+            $h .= "(@f)";
+        }
+        $h;
+    } @heads;
+
+    my $branch_name = $branch->{branch_name};
+
+    my $local = @h >= 2 ? pop @h : "";
+
+    my $row = [
+       $branch_name,
+       join(", ", @flags),
+       $branch->{is_unreleased}
+           ? "unreleased"
+           : $branch->{has_unreleased_heads}
+               ? !$heads[-1]->{is_on_release_branch} ? "unrelease_local" : "unreleased_remote"
+               : "",
+       @h,
+       $cmp,
+       $local,
+       $heads[0]->{date}    // "",
+       $heads[0]->{author}  // "",
+       $heads[0]->{subject} // "",
+    ];
+
+    for my $i (0..$#$row) {
+        my $w = length $row->[$i];
+        if (!$w[$i] || $w > $w[$i]) {
+            $w[$i] = $w;
+        }
+    }
+
+    push @rows, $row;
+}
+
+my $fmt = join(" ", map "%-${_}s", @w) . "\n";
+
+for (@rows) {
+    printf $fmt, @$_, ("") x ($#w - $#$_);
+}

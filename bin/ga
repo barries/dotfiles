@@ -6,5 +6,5 @@ shopt -s nullglob
 if [[ $# -eq 0 ]]; then
     git add -N .
 else
-    git add -N "$@"
+    git add "$@"
 fi

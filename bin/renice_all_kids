@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
+renice -n +10 -p $(pstree -p $1 | grep -o '([1-9][0-9]*)'|tr -d '()')

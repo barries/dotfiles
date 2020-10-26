@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 shopt -s nullglob
 
-git fetch
+unset DISPLAY
+
+# --prune plus --tags does *not* prune locally applied tags.
+#
+# That would take a --prune-tags option.
+
+git fetch --force --prune --tags # TODO (when git is upgraded from git 2.23.0): --set-upstream

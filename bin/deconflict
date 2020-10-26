@@ -1,0 +1,89 @@
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+
+use Getopt::Long qw(:config auto_help no_auto_abbrev no_ignore_case);
+
+=head1 NAME
+
+deconflict_git_merge - select first, second, or third branch in a git conflict marker
+
+=head1 SYNOPSIS
+
+deconflict_git_merge        # select last hunk conflict
+deconflict_git_merge 1      # select first hunk of conflict (2, 3 are also allowed)
+deconflict_git_merge ALL    # select all hunks (discards markers)
+deconflict_git_merge HEAD   # HEAD side of conflict
+deconflict_git_merge origin # select side of conflict matching origin
+
+=cut
+
+GetOptions() or exit(1);
+
+my $pattern = (@ARGV && $ARGV[0] =~ /^\w*$/) ? shift : "";
+
+my $is_numeric_pattern = $pattern && ($pattern =~ /^\d+$/);
+
+my $hunk_counter;
+my $emit = 1;
+my %matched;
+my $defaulted;
+my %names;
+while (<>) {
+    if (/^<<<<<<<(?: .*)?$/) {
+        $hunk_counter = 0;
+        $emit         = 0;
+        %matched      = ();
+        %names        = ();
+        $defaulted    = 0;
+    }
+
+    if (/^(<<<<<<<|=======|\Q|||||||\E|>>>>>>>)(?: (.*))?/) {
+        my ($marker, $name) = ($1, $2);
+
+        my $name_matches;
+        if (defined $name) {
+            $names{$name} = 1;
+            $name_matches = (!$is_numeric_pattern && $pattern && ($pattern eq "ALL" || $name =~ /\Q$pattern\E/));
+        }
+
+        $emit = 0;
+        ++$hunk_counter;
+
+        if ($is_numeric_pattern) {
+            $emit = ($hunk_counter == $pattern);
+        }
+        elsif ($marker eq "=======") {
+            if ($pattern eq "ALL" || !%matched) {
+                $emit      = 1;
+                $defaulted = !!$pattern;
+            }
+        }
+        elsif ($pattern) {
+            $emit = $name_matches;
+        }
+
+        $matched{$name} = 1 if $emit && defined $name;
+
+        if ($marker eq ">>>>>>>") {
+            if (!$pattern || $name_matches) {
+                $matched{$name} = 1;
+            }
+
+            if (!%matched) {
+                die "error: did not match any of ", join(", ", sort keys %names), ": \"$pattern\"\n";
+            }
+
+            if ($pattern ne "ALL" && %matched > 1) {
+                die "BUG: matched ", join(", ", sort keys %matched), ": \"$pattern\"\n";
+            }
+            $emit = 1;
+        }
+        next;
+    }
+
+    if ($emit) {
+        print;
+    }
+}
