@@ -1,0 +1,20 @@
+[diff]
+	tool = vimdiff
+	algorithm = histogram
+[merge]
+	tool = vimdiff
+    verbosity = 1   # 1: Only list conflicts (so they're not lost in scrollback)
+#	conflictstyle = diff3
+    renormalize = true # Should make .csv and .pcs files easier to merge
+[mergetool.vimdiff]
+	path = nvim
+[push]
+	default = current
+[user]
+	email = barrie.slaymaker@omnicell.com
+	name = barries
+[mergetool]
+	keepBackup = false
+	prompt = false
+[rerere]
+	enabled = 1
