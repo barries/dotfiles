@@ -11,7 +11,8 @@ let g:cpp_class_scope_highlight = 1
 
 hi Normal       ctermfg=White ctermbg=Black guifg=#ffffff guibg=Black
 hi NormalNC                   ctermbg=234   guifg=#ffffff guibg=Black
-hi EndOfBuffer  ctermfg=021   ctermbg=Black       " tildes after last line in buffer
+hi NormalFloat  ctermbg=Grey  ctermfg=Black   " Haven't seen this work yet--I set it manually with winhl
+hi EndOfBuffer  ctermfg=021   ctermbg=Black   " tildes after last line in buffer
 hi Visual                     ctermbg=022
 
 " Avoiding setting ctermfg because it breaks syntax highlighting
@@ -35,7 +36,11 @@ hi Typedef    cterm=bold ctermfg=195                        gui=NONE guifg=#ffff
 
 hi cppSTLfunction ctermfg=159
 hi cCustomClass   ctermfg=255
+hi cCustomFunc    ctermfg=Blue
 hi cppAccess      cterm=underline ctermfg=195
+hi TSConstructor ctermfg=White " treesitter weirdly places a constructor attr on the RHS of -> method calls
+hi TSFunction ctermfg=White
+hi TSMethod   ctermfg=White
 
 hi ivcgAlignment        cterm=underline      ctermfg=Green        gui=NONE guifg=#ffff00
 hi ivcgBlock            cterm=NONE           ctermfg=Green        gui=NONE guifg=#ffff00
@@ -54,15 +59,15 @@ hi Search       cterm=NONE                      ctermbg=Yellow
 hi IncSearch    cterm=NONE                      ctermbg=214
 hi Substitute   cterm=NONE      ctermfg=Yellow  " bg seems to be ignored
 hi LineNr                       ctermfg=240
-hi NonText cterm=bold,underline ctermfg=Black   ctermbg=008         " listchars extends, precedes, eol, etc.
+hi NonText      cterm=bold      ctermfg=Green   ctermbg=008         " listchars extends, precedes, eol, etc.
 hi Pmenu                        ctermfg=Blue    ctermbg=017         " Popup menu (autocompletion, etc)
 hi PmenuSel                     ctermfg=123     ctermbg=DarkBlue    " Popup menu selected item
 hi QuickFixLine cterm=bold,underline
 hi SpecialKey   cterm=NONE      ctermfg=Green
-hi Whitespace   cterm=underline ctermfg=Yellow                      " listchars tab, trail, space, etc,
+hi Whitespace   cterm=bold      ctermfg=Yellow                      " listchars tab, trail, space, etc,
 
 hi DiffAdd                                      ctermbg=023
-hi DiffDelete                                   ctermbg=053
+hi DiffDelete                                   ctermbg=236
 hi DiffChange                                   ctermbg=017
 hi DiffText                                     ctermbg=019
 
@@ -80,9 +85,9 @@ hi StatusLineNC cterm=NONE  ctermfg=Black ctermbg=246
 hi Folded       cterm=NONE  ctermfg=246   ctermbg=236
 
 " vim-mark colors
-hi MarkWord1 ctermbg=cyan    ctermfg=Black
-hi MarkWord2 ctermbg=green   ctermfg=Black
-hi MarkWord3 ctermbg=grey    ctermfg=Black
-hi MarkWord4 ctermbg=red     ctermfg=Black
-hi MarkWord5 ctermbg=magenta ctermfg=Black
-hi MarkWord6 ctermbg=blue    ctermfg=Black
+"hi MarkWord1 ctermbg=cyan    ctermfg=Black
+"hi MarkWord2 ctermbg=034     ctermfg=Black
+"hi MarkWord3 ctermbg=grey    ctermfg=Black
+"hi MarkWord4 ctermbg=red     ctermfg=Black
+"hi MarkWord5 ctermbg=magenta ctermfg=Black
+"hi MarkWord6 ctermbg=blue    ctermfg=Black

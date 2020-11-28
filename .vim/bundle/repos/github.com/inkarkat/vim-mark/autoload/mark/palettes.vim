@@ -2,13 +2,13 @@
 "
 " DEPENDENCIES:
 "
-" Copyright: (C) 2012-2018 Ingo Karkat
+" Copyright: (C) 2012-2019 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
 " Contributors: rockybalboa4
 "
-" Version:     2.7.0
+" Version:     3.1.0
 
 function! mark#palettes#Extended()
 	return [
@@ -31,6 +31,59 @@ function! mark#palettes#Extended()
 		\   { 'ctermbg':'Black',      'ctermfg':'Gray',  'guibg':'#131311', 'guifg':'#AAAAAA' },
 		\   { 'ctermbg':'Blue',       'ctermfg':'White', 'guibg':'#0000FF', 'guifg':'#F0F0FF' },
 		\   { 'ctermbg':'DarkRed',    'ctermfg':'White', 'guibg':'#FF0000', 'guifg':'#FFFFFF' },
+		\   { 'ctermbg':'DarkGreen',  'ctermfg':'White', 'guibg':'#00FF00', 'guifg':'#355F35' },
+		\   { 'ctermbg':'DarkYellow', 'ctermfg':'White', 'guibg':'#FFFF00', 'guifg':'#6F6F4C' },
+		\]
+endfunction
+
+function! mark#palettes#Soft()
+	return [
+		\   {                                            'guibg':'#d1dbff', 'guifg':'#001250' },
+		\   {                                            'guibg':'#ffd1e2', 'guifg':'#500039' },
+		\   {                                            'guibg':'#d6ffd1', 'guifg':'#095000' },
+		\   {                                            'guibg':'#fff3d1', 'guifg':'#503c00' },
+		\   {                                            'guibg':'#e8d1ff', 'guifg':'#280050' },
+		\   {                                            'guibg':'#d1feff', 'guifg':'#004e50' },
+		\   {                                            'guibg':'#d1edff', 'guifg':'#003050' },
+		\   {                                            'guibg':'#d6d1ff', 'guifg':'#0a0050' },
+		\   {                                            'guibg':'#f9d1ff', 'guifg':'#460050' },
+		\   {                                            'guibg':'#ffe1d1', 'guifg':'#501d00' },
+		\   {                                            'guibg':'#e8ffd1', 'guifg':'#265000' },
+		\   {                                            'guibg':'#f8ffd1', 'guifg':'#455000' },
+		\   {                                            'guibg':'#f8f8f8', 'guifg':'#101010' },
+		\   {                                            'guibg':'#f0f0f0', 'guifg':'#202020' },
+		\   {                                            'guibg':'#e8e8e8', 'guifg':'#303030' },
+		\   {                                            'guibg':'#d8d8d8', 'guifg':'#404040' },
+		\   {                                            'guibg':'#c8c8c8', 'guifg':'#505050' },
+		\   {                                            'guibg':'#b0b0ff', 'guifg':'#4c4c6f' },
+		\   {                                            'guibg':'#ffb0b0', 'guifg':'#5f4141' },
+		\   {                                            'guibg':'#b0ffb0', 'guifg':'#415f41' },
+		\   {                                            'guibg':'#ffff80', 'guifg':'#4f4f27' },
+		\]
+endfunction
+function! mark#palettes#Softer()
+	return [
+		\   {                                            'guibg':'#e9edff', 'guifg':'#001250' },
+		\   {                                            'guibg':'#ffe9f1', 'guifg':'#500039' },
+		\   {                                            'guibg':'#ebffe9', 'guifg':'#095000' },
+		\   {                                            'guibg':'#fff9e9', 'guifg':'#503c00' },
+		\   {                                            'guibg':'#f4e9ff', 'guifg':'#280050' },
+		\   {                                            'guibg':'#e9feff', 'guifg':'#004e50' },
+		\   {                                            'guibg':'#e9f6ff', 'guifg':'#003050' },
+		\   {                                            'guibg':'#ebe9ff', 'guifg':'#0a0050' },
+		\   {                                            'guibg':'#fce9ff', 'guifg':'#460050' },
+		\   {                                            'guibg':'#fff0e9', 'guifg':'#501d00' },
+		\   {                                            'guibg':'#f4ffe9', 'guifg':'#265000' },
+		\   {                                            'guibg':'#fbffe9', 'guifg':'#455000' },
+		\   {                                            'guibg':'#f8f8f8', 'guifg':'#101010' },
+		\   {                                            'guibg':'#f2f2f2', 'guifg':'#202020' },
+		\   {                                            'guibg':'#ececec', 'guifg':'#303030' },
+		\   {                                            'guibg':'#e3e3e3', 'guifg':'#404040' },
+		\   {                                            'guibg':'#dcdcdc', 'guifg':'#505050' },
+		\   {                                            'guibg':'#c8c8ff', 'guifg':'#4c4c6f' },
+		\   {                                            'guibg':'#ffc8c8', 'guifg':'#5f4141' },
+		\   {                                            'guibg':'#c8ffc8', 'guifg':'#415f41' },
+		\   {                                            'guibg':'#ffff98', 'guifg':'#4f4f27' },
 		\]
 endfunction
 

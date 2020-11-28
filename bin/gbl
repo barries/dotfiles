@@ -4,10 +4,12 @@ use 5.24.0;
 
 use warnings;
 use strict;
+use experimental qw( switch );
 
+use Cwd        qw(cwd);
 use List::Util qw(max maxstr uniq);
 
-use Getopt::Long qw(:config auto_help no_auto_abbrev no_ignore_case);
+use Getopt::Long qw(:config auto_help no_auto_abbrev no_ignore_case pass_through);
 
 =head1 NAME
 
@@ -15,21 +17,24 @@ gbl - print list of git refs unmerged heads
 
 =head1 SYNOPSIS
 
-gblu <options>
+gbl [<options>] [<branch_name>*] [.]
 
 =head2 Filter Options
 
-    --cleanable   List local_up_to_date, local_behind branches
-    --diverged    List diverged branches
-    --local       List branches in /refs/heads/
-    --releases    List release bramches (names =~ /^\d+(\.\d+){1,3}$/;
-    --remote      List branches in /refs/remotes/
-    --stale       List stale branches (only; defaults to --no-stale)
-    --stale-too   Also list branches more than 15 days old (overrides --state, --no-stale)
-    --worktree    List branches that have worktrees
+Filter options are B<AND>ed together--if more than one are specified, only
+branches matching all of them are shown.
 
-    --no-local  Don't list branches in /refs/heads/
-    --no-remote Don't list branches in /refs/remotes/
+    --cleanable      List local_up_to_date, local_behind branches
+    --diverged       List diverged branches
+    --local          List branches in /refs/heads/
+    --releases       List release bramches (names =~ /^\d+(\.\d+){1,3}$/;
+    --remote         List branches in /refs/remotes/
+    --stale          List stale branches (only; defaults to --no-stale)
+    --stale-too      Also list branches more than 15 days old (overrides --state, --no-stale)
+    --worktree       List branches that have worktrees
+
+    --no-local   Don't list branches in /refs/heads/
+    --no-remote  Don't list branches in /refs/remotes/
 
 =head2 Other Options
 
@@ -38,10 +43,22 @@ gblu <options>
     --no-fetch  Don't fetch first
     --subject   Print git subject from tip
 
+=head2 C<git for-each-ref> options
+
+Options not listed above, and all other arguments, are passed through
+to C<git for-each-ref /refs/heads refs/remotes>
+
 =head2 DESCRIPTION
 
 Lists all branches and shows the relationship (if any) between the local
-branches and remote branches with the same name:
+branches and remote branches with the same name.
+
+Specify one or more branch names, or C<HEAD>, C<.>, or C<./> for the branch
+checked out in the current directory. See C<git for-each-ref> for information
+on how branch refs are procesed, note that it supports wildcards C<?> and C<*>
+(remember to quote them so the shell doesn't glob them).
+
+=head3 Columns
 
 =over
 
@@ -105,46 +122,48 @@ Diverged branch with unmerged changes on all refs.
 
 Diverged branch with unmerged changes on one ref.
 
+=item merge_only_tip
+
+Only merges from released branches have been peformed since the last non-merge
+commit.
+
 =back
 
 =back
 
 =head2 NOTES
 
-"age" (for staleness determination) is determined relative to the
-most recent commit, not current wallclock time. This allows
-the state of the repository to be seen of its last commit, and
-avoids any confusion about current system time.
+"age" (for staleness determination) is determined relative to the most recent
+commit, not current wallclock time. This allows the state of the repository to
+be seen of its last commit, and avoids any confusion about current system time.
 
 =cut
 
 my $max_non_stale_days = 15;
 
 @ARGV = map {
-    s{--no-}{--no}; # Allow --no-local
+    s{--no-(local|remote|fetch)}{--no$1}; # Allow --no-local
     $_;
 } @ARGV;
 
 my $stale_opt = 0;
 
 GetOptions(
-    "clean"      => \my $clean_opt,
-    "cleanable!" => \my $cleanable_opt,
-    "diverged!"  => \my $diverged_opt,
-    "fetch!"     => \(my $fetch_opt = 1),
-    "local!"     => \my $local_opt,
-    "releases!"  => \my $releases_opt,
-    "remote!"    => \my $remote_opt,
-    "stale!"     => \$stale_opt,
-    "stale-too!" => sub { $stale_opt = undef },
-    "subject!"   => \my $subject_opt,
-    "worktree!"  => \my $worktree_opt,
+    "clean"       => \my $clean_opt,
+    "cleanable!"  => \my $cleanable_opt,
+    "diverged!"   => \my $diverged_opt,
+    "fetch!"      => \(my $fetch_opt = 1),
+    "local!"      => \my $local_opt,
+    "releases!"   => \my $releases_opt,
+    "remote!"     => \my $remote_opt,
+    "stale!"      => \$stale_opt,
+    "stale-too!"  => sub { $stale_opt = undef },
+    "subject!"    => \my $subject_opt,
+    "worktree!"   => \my $worktree_opt,
 ) or exit(1);
 
 my @branches;
 my %branches;
-my @refs;
-my %refs;
 my @heads_hashes;
 my %commits;
 
@@ -173,7 +192,7 @@ sub commit {
     my ($hash) = @_;
 
     my $commit = $commits{$hash} //= {
-        commit_hash   => $hash,
+        hash          => $hash,
         branch_names  => {},
         child_hashes  => [],
         is_local_only => 1,
@@ -189,16 +208,29 @@ if ($fetch_opt) {
          and die "fetch returned ", $? >> 8, "\n";
 }
 
-for (`git for-each-ref --sort=committerdate refs/heads refs/remotes`) {
+if (!@ARGV) {
+    push @ARGV, qw( refs/heads refs/remotes );
+}
+else {
+    push @ARGV, map {
+        if ($_ eq "HEAD" || $_ eq "." || $_ eq "./") {
+            $_ = `git branch --show-current`;
+            chomp;
+        }
+        ( "refs/heads/$_", "refs/remotes/*/$_" );
+    } @ARGV;
+}
+
+for (`git for-each-ref --sort=committerdate @ARGV`) {
     chomp;
-    my ($commit_hash, $ref) = (split /\h+/)[0,2];
+    my ($hash, $type, $ref) = split /\h+/;
     next if $ref =~ /\b(MERGE_)?HEAD$/;
+    next if $type ne "commit";
+    next if $ref !~ m{refs/(heads|remotes)/};
 
-    push @heads_hashes, $commit_hash;
-    push @refs,         $ref;
+    push @heads_hashes, $hash;
 
-    my $commit = commit($commit_hash);
-    $refs{$ref} = $commit;
+    my $commit = commit($hash);
 
     my $heads = branch($ref)->{heads};
     push @$heads, $commit
@@ -227,9 +259,10 @@ my $format = "%(objectname)\t%(committerdate:format-local:%Y-%m-%d %H:%M:%S)\t%(
 $format .= "\t%(contents:subject)"
     if $subject_opt;
 
-for (`git for-each-ref --sort=committerdate refs/heads/ refs/remotes --format='$format'`) {
+for (`git for-each-ref --sort=committerdate --format='$format' @ARGV`) {
     chomp;
     my ($hash, $date, $seconds_since_epoch, $author, $worktree, $subject) = split /\t/, $_, 5;
+    next unless defined $seconds_since_epoch;
 
     my $commit = $commits{$hash};
     $commit->{author}                = $author;
@@ -259,16 +292,27 @@ for (@branches) {
 
 @heads_hashes = uniq @heads_hashes;
 
-my $offset = 0;
-for (`git rev-list --parents --topo-order @heads_hashes`) {
-    chomp;
-    my ($child_hash, @parent_hashes) = split /\h+/, $_;
-    my $commit = commit($child_hash);
-    $commit->{parent_hashes} = \@parent_hashes;
-    $commit->{is_merge}      = @parent_hashes > 1;
-    $commit->{offset}      = $offset++;
-    for (@parent_hashes) {
-        push @{commit($_)->{child_hashes}}, $child_hash;
+if (!@heads_hashes) {
+    die "no head revs found\n";
+}
+
+{
+    my $offset = 0;
+    for (`git rev-list --parents --topo-order @heads_hashes`) {
+        chomp;
+        my ($child_hash, @parent_hashes) = split /\h+/, $_;
+        my $commit = commit($child_hash);
+        $commit->{parent_hashes} = \@parent_hashes;
+        $commit->{is_merge}      = @parent_hashes > 1;
+        $commit->{offset}        = $offset++;
+        $commit->{is_tip}        = 1; # default
+    }
+}
+
+for my $c (values %commits) {
+    $c->{parents} = [ map $commits{$_}, @{$c->{parent_hashes}} ];
+    for (@{$c->{parents}}) {
+        $_->{is_tip} = 0;
     }
 }
 
@@ -279,9 +323,7 @@ my @heads = map @{$_->{heads}}, @branches;
     while (@q) {
         my $c = shift @q;
         $c->{is_on_release_branch} = 1;
-        push @q,
-            grep !$_->{is_on_release_branch},
-            map $commits{$_}, @{$c->{parent_hashes}};
+        push @q, grep !$_->{is_on_release_branch}, @{$c->{parents}};
     }
 }
 
@@ -290,9 +332,7 @@ my @heads = map @{$_->{heads}}, @branches;
     while (@q) {
         my $c = shift @q;
         $c->{is_on_remote} = 1;
-        push @q,
-            grep !$_->{is_on_remote},
-            map $commits{$_}, @{$c->{parent_hashes}};
+        push @q, grep !$_->{is_on_remote}, map $commits{$_}, @{$c->{parents}};
     }
 }
 
@@ -303,7 +343,7 @@ my @unmerged_heads = grep !$_->{is_on_release_branch} && !$_->{is_on_remote}, @h
     my $head = $_;
     my $c = $_;
     while ($c && $c->{is_merge}) {
-        $c = $commits{$c->{parent_hashes}->[0]};
+        $c = $c->{parents}->[0];
     }
     !($c && $c->{is_on_release_branch});
 } @unmerged_heads;
@@ -314,7 +354,6 @@ my @w;
 my @rows;
 for my $branch (@branches) {
     my $worktree = $branch->{worktree} // "";
-    $worktree =~ s{^\Q$ENV{HOME}\E/(.*)}{~/$1/};
 
     next unless (
            (!defined $local_opt    || (!!$local_opt    == !!$branch->{is_local}         ))
@@ -355,7 +394,7 @@ for my $branch (@branches) {
                 $local_can_ff = 1;
                 last;
             }
-            push @q, grep !$seen{int $_}++, map $commits{$_}, @{$c->{parent_hashes}};
+            push @q, grep !$seen{int $_}++, @{$c->{parents}};
         }
 
         %seen = ();
@@ -375,7 +414,7 @@ for my $branch (@branches) {
                 }
             }
 
-            push @q, grep !$seen{int $_}++, map $commits{$_}, @{$c->{parent_hashes}};
+            push @q, grep !$seen{int $_}++, @{$c->{parents}};
         }
 
         if ($local_can_ff) {
@@ -392,6 +431,8 @@ for my $branch (@branches) {
     next unless (!defined $diverged_opt || (!!$diverged_opt == ($local_description eq "diverged")));
 
     my $branch_name = $branch->{branch_name};
+
+    $worktree =~ s{^\Q$ENV{HOME}\E/(.*)}{~/$1/};
 
     if ($clean_opt || $cleanable_opt) {
         if (
@@ -419,7 +460,7 @@ for my $branch (@branches) {
     $branch->{has_unreleased_heads} =  grep !$_->{is_on_release_branch}, @{$branch->{heads}};
     $branch->{all_heads_unreleased} = !grep  $_->{is_on_release_branch}, @{$branch->{heads}};
 
-    my @short_hashes = map substr($_->{commit_hash}, 0, 8), @heads;
+    my @short_hashes = map substr($_->{hash}, 0, 8), @heads;
 
     if (@short_hashes > 1) {
         if ($local_description eq "local_behind" || $local_description eq "has_local") {
@@ -450,14 +491,12 @@ for my $branch (@branches) {
         }
     }
 
-    my @tip_heads = grep(!$_->{is_on_release_branch} && @{$_->{child_hashes}} == 0, @heads);
+    my @tip_heads = grep($_->{is_tip}, @heads);
 
     for (@tip_heads) {
-        $_->{is_tip} = 1;
-        my $head = $_;
         my $c = $_;
         while ($c && $c->{is_merge}) {
-            $c = $commits{$c->{parent_hashes}->[0]};
+            $c = $c->{parents}->[0];
         }
         $_->{is_merge_only_tip} = $c && $c->{is_on_release_branch};
     }

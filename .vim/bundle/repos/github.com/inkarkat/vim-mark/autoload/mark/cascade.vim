@@ -1,11 +1,9 @@
 " mark/cascade.vim: Cascading search through all used mark groups.
 "
 " DEPENDENCIES:
-"	- mark.vim autoload script
-"	- ingo/err.vim autoload script
-"	- ingo/msg.vim autoload script
+"   - ingo-library.vim plugin
 "
-" Copyright: (C) 2015-2018 Ingo Karkat
+" Copyright: (C) 2015-2020 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>

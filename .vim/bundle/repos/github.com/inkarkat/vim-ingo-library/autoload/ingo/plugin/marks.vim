@@ -2,7 +2,7 @@
 "
 " DEPENDENCIES:
 "
-" Copyright: (C) 2010-2017 Ingo Karkat
+" Copyright: (C) 2010-2019 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
@@ -67,12 +67,12 @@ function! ingo#plugin#marks#FindUnused( ... )
 "* RETURN VALUES:
 "   Mark name. Throws exception if no mark is available.
 "******************************************************************************
-    let l:consideredMarks = (a:0 ? a:1 : 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
+    let l:consideredMarks = (a:0 && ! empty(a:1) ? a:1 : 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ')
 
     for l:mark in (type(l:consideredMarks) == type([]) ? l:consideredMarks : split(l:consideredMarks, '\zs'))
 	if getpos("'" . l:mark)[1:2] == [0, 0]
 	    " Reserve mark so that the next invocation doesn't return it again.
-	    execute 'normal! m' . l:mark
+	    call setpos("'" . l:mark, getpos('.'))
 	    return l:mark
 	endif
     endfor
@@ -90,15 +90,21 @@ function! ingo#plugin#marks#Reserve( number, ... )
 "   override the mark location, anyway.
 "* INPUTS:
 "   a:number	Number of marks to be reserved.
+"   a:marks	Optional string of concatenated marks. If passed, those marks
+"               will be taken (and current positions will be saved in the undo
+"               information). If empty or omitted, marks from
+"               g:IngoLibrary_Marks (if defined) will be used. If that also is
+"               empty or undefined, unused marks will be used (this is the
+"               default).
 "* RETURN VALUES:
 "   reservedMarksRecord. Use keys(reservedMarksRecord) to get the names of the
 "   reserved marks.  The records object must also be passed back to
 "   ingo#plugin#marks#Unreserve().
-"   Throws exception if no mark is available.
+"   Throws exception if no mark is available (and no a:marks had been passed).
 "******************************************************************************
     let l:marksRecord = {}
     for l:cnt in range(0, (a:number - 1))
-	let l:mark = strpart((a:0 ? a:1 : ''), l:cnt, 1)
+	let l:mark = strpart((a:0 ? a:1 : (exists('g:IngoLibrary_Marks') ? g:IngoLibrary_Marks : '')), l:cnt, 1)
 	if empty(l:mark)
 	    let l:unusedMark = ingo#plugin#marks#FindUnused()
 	    let l:marksRecord[l:unusedMark] = [0, 0, 0, 0]

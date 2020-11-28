@@ -2,53 +2,16 @@
 "
 " DEPENDENCIES:
 "
-" Copyright: (C) 2010-2016 Ingo Karkat
+" Copyright: (C) 2010-2020 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
-"
-" REVISION	DATE		REMARKS
-"   1.025.014	28-Apr-2016	Add ingo#regexp#MakeStartWordSearch()
-"				ingo#regexp#MakeEndWordSearch() variants of
-"				ingo#regexp#MakeWholeWordSearch().
-"   1.023.013	25-Nov-2014	Expose ingo#regexp#MakeWholeWordSearch() (with
-"				the second a:pattern argument made optional).
-"   1.020.012	29-May-2014	CHG: At ingo#regexp#FromLiteralText(), add the
-"				a:isWholeWordSearch also on either side, or when
-"				there are non-keyword characters in the middle
-"				of the text. The * command behavior where this
-"				is modeled after only handles a smaller subset,
-"				and this extension looks sensible and DWIM.
-"   1.013.011	13-Sep-2013	ingo#regexp#FromWildcard(): Limit * glob
-"				matching to individual path components and add
-"				** for cross-directory matching.
-"   1.011.010	24-Jul-2013	Minor: Remove invalid "e" flag from
-"				substitute().
-"   1.006.009	24-May-2013	Move into ingo-library.
-"				Restructure ingo#regexp#FromLiteralText() a bit.
-"	008	21-Feb-2013	Move ingocollections.vim to ingo-library.
-"	007	03-Sep-2011	Extend ingosearch#GetLastForwardSearchPattern()
-"				to take optional count into search history.
-"	006	02-Sep-2011	Add ingosearch#GetLastForwardSearchPattern().
-"	005	10-Jun-2011	Add ingosearch#NormalizeMagicness().
-"	004	17-May-2011	Make ingosearch#EscapeText() public.
-"				Extract ingosearch#GetSpecialSearchCharacters()
-"				from s:specialSearchCharacters and expose it.
-"	003	12-Feb-2010	Added ingosearch#WildcardExprToSearchPattern()
-"				from the :Help command in ingocommands.vim.
-"	002	05-Jan-2010	BUG: Wrong escaping with 'nomagic' setting.
-"				Corrected s:specialSearchCharacters for that
-"				case.
-"				Renamed ingosearch#GetSearchPattern() to
-"				ingosearch#LiteralTextToSearchPattern().
-"	001	05-Jan-2010	file creation with content from
-"				SearchHighlighting.vim.
 
 function! ingo#regexp#GetSpecialCharacters()
     " The set of characters that must be escaped depends on the 'magic' setting.
     return ['^$', '^$.*[~'][&magic]
 endfunction
-function! ingo#regexp#EscapeLiteralText( text, additionalEscapeCharacters )
+function! ingo#regexp#EscapeLiteralText( text, ... )
 "*******************************************************************************
 "* PURPOSE:
 "   Escape the literal a:text for use in search command.
@@ -76,11 +39,11 @@ function! ingo#regexp#EscapeLiteralText( text, additionalEscapeCharacters )
 "				    assignment to @/, always add '/', regardless
 "				    of the search direction; this is how Vim
 "				    escapes it, too. For use in search(), pass
-"				    nothing.
+"				    an empty String or omit the argument.
 "* RETURN VALUES:
 "   Regular expression for matching a:text.
 "*******************************************************************************
-    return substitute(escape(a:text, '\' . ingo#regexp#GetSpecialCharacters() . a:additionalEscapeCharacters), "\n", '\\n', 'g')
+    return substitute(escape(a:text, '\' . ingo#regexp#GetSpecialCharacters() . (a:0 ? a:1 : '')), "\n", '\\n', 'g')
 endfunction
 
 function! ingo#regexp#MakeWholeWordSearch( text, ... )
@@ -110,7 +73,7 @@ function! ingo#regexp#MakeWholeWordSearch( text, ... )
 "* RETURN VALUES:
 "   a:text / a:pattern, with additional \< / \> atoms if applicable.
 "******************************************************************************
-let l:pattern = (a:0 ? a:1 : a:text)
+    let l:pattern = (a:0 ? a:1 : a:text)
     if a:text =~# '^\k'
 	let l:pattern = '\<' . l:pattern
     endif
@@ -133,6 +96,71 @@ function! ingo#regexp#MakeEndWordSearch( text, ... )
     endif
     return l:pattern
 endfunction
+function! ingo#regexp#MakeWholeWORDSearch( text, ... )
+"******************************************************************************
+"* PURPOSE:
+"   Generate a pattern that searches only for whole WORDs of a:text, but only if
+"   a:text actually starts / ends with non-whitespace characters.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:text  Text / pattern to be searched for. Note that this isn't escaped in any form;
+"	    you probably want to escape backslashes beforehand and use \V "very
+"	    nomagic" on the result.
+"   a:pattern   If passed, this is adapted according to what a:text is about.
+"		Useful if the pattern has already been so warped (e.g. by
+"		enclosing in /\(...\|...\)/) that word boundary detection on the
+"		original text wouldn't work.
+"* RETURN VALUES:
+"   a:text / a:pattern, with additional atoms if applicable.
+"******************************************************************************
+    let l:pattern = (a:0 ? a:1 : a:text)
+    if a:text =~# '^\S'
+	let l:pattern = '\%(^\|\s\)\@<=' . l:pattern
+    endif
+    if a:text =~# '\S$'
+	let l:pattern .= '\%(\s\|$\)\@='
+    endif
+    return l:pattern
+endfunction
+function! ingo#regexp#MakeWholeWordOrWORDSearch( text, ... )
+"******************************************************************************
+"* PURPOSE:
+"   Generate a pattern that searches only for whole words or whole WORDs of
+"   a:text, depending on whether a:text actually starts / ends with
+"   keyword or non-whitespace (not necessarily the same type at begin and end)
+"   characters.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:text  Text / pattern to be searched for. Note that this isn't escaped in any form;
+"	    you probably want to escape backslashes beforehand and use \V "very
+"	    nomagic" on the result.
+"   a:pattern   If passed, this is adapted according to what a:text is about.
+"		Useful if the pattern has already been so warped (e.g. by
+"		enclosing in /\(...\|...\)/) that word boundary detection on the
+"		original text wouldn't work.
+"* RETURN VALUES:
+"   a:text / a:pattern, with additional atoms if applicable.
+"******************************************************************************
+    let l:pattern = (a:0 ? a:1 : a:text)
+    if a:text =~# '^\k'
+	let l:pattern = '\<' . l:pattern
+    elseif a:text =~# '^\S'
+	let l:pattern = '\%(^\|\s\)\@<=' . l:pattern
+    endif
+    if a:text =~# '\k$'
+	let l:pattern .= '\>'
+    elseif a:text =~# '\S$'
+	let l:pattern .= '\%(\s\|$\)\@='
+    endif
+    return l:pattern
+endfunction
+
 function! ingo#regexp#FromLiteralText( text, isWholeWordSearch, additionalEscapeCharacters )
 "*******************************************************************************
 "* PURPOSE:
@@ -196,6 +224,32 @@ function! ingo#regexp#FromWildcard( wildcardExpr, additionalEscapeCharacters )
     let l:expr = substitute(l:expr, '\*\*', '\\.\\*', 'g')
     let l:expr = substitute(l:expr, '\*', '\\[^/\\\\]\\*', 'g')
     return l:expr
+endfunction
+
+function! ingo#regexp#IsValid( expr, ... )
+"******************************************************************************
+"* PURPOSE:
+"   Test whether a:expr is a valid regular expression.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   In case of an invalid regular expression, makes Vim's error accessible via
+"   ingo#err#Get(...). Any desired custom a:context can be passed to this
+"   function as the optional argument.
+"* INPUTS:
+"   a:expr  Regular expression to test for correctness.
+"   a:context	Optional context for ingo#err#Get().
+"* RETURN VALUES:
+"   1 if Vim's regular expression parser accepts a:expr, 0 if an error is
+"   raised.
+"******************************************************************************
+    try
+	call match('', a:expr)
+	return 1
+    catch /^Vim\%((\a\+)\)\=:/
+	call call('ingo#err#SetVimException', a:000)
+	return 0
+    endtry
 endfunction
 
 " vim: set ts=8 sts=4 sw=4 noexpandtab ff=unix fdm=syntax :

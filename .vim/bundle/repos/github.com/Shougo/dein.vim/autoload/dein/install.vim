@@ -21,12 +21,23 @@ let g:dein#install_process_timeout =
       \ get(g:, 'dein#install_process_timeout', 120)
 let g:dein#install_log_filename =
       \ get(g:, 'dein#install_log_filename', '')
+let g:dein#install_github_api_token =
+      \ get(g:, 'dein#install_github_api_token', '')
+let g:dein#install_curl_command =
+      \ get(g:, 'dein#install_curl_command', 'curl')
 
 function! s:get_job() abort
   if !exists('s:Job')
     let s:Job = vital#dein#import('System.Job')
   endif
   return s:Job
+endfunction
+
+function! s:get_datetime() abort
+  if !exists('s:DateTime')
+    let s:DateTime = vital#dein#import('DateTime')
+  endif
+  return s:DateTime
 endfunction
 
 function! dein#install#_update(plugins, update_type, async) abort
@@ -39,8 +50,6 @@ function! dein#install#_update(plugins, update_type, async) abort
 
   if a:update_type ==# 'install'
     let plugins = filter(plugins, '!isdirectory(v:val.path)')
-  elseif a:update_type ==# 'check_update'
-    let plugins = filter(plugins, 'isdirectory(v:val.path)')
   endif
 
   if a:async && !empty(s:global_context) &&
@@ -55,11 +64,9 @@ function! dein#install#_update(plugins, update_type, async) abort
   call s:init_variables(context)
 
   if empty(plugins)
-    if a:update_type !=# 'check_update'
-      call s:notify('Target plugins are not found.')
-      call s:notify('You may have used the wrong plugin name,'.
-            \ ' or all of the plugins are already installed.')
-    endif
+    call s:notify('Target plugins are not found.')
+    call s:notify('You may have used the wrong plugin name,'.
+          \ ' or all of the plugins are already installed.')
     let s:global_context = {}
     return
   endif
@@ -79,8 +86,7 @@ function! dein#install#_update(plugins, update_type, async) abort
     unlet s:timer
   endif
 
-  let s:timer = timer_start(1000,
-        \ {-> dein#install#_polling()}, {'repeat': -1})
+  let s:timer = timer_start(50, {-> dein#install#_polling()}, {'repeat': -1})
 endfunction
 function! s:update_loop(context) abort
   let errored = 0
@@ -101,6 +107,138 @@ function! s:update_loop(context) abort
   endtry
 
   return errored
+endfunction
+
+function! dein#install#_check_update(plugins, force, async) abort
+  if g:dein#install_github_api_token ==# ''
+    call s:error('You need to set g:dein#install_github_api_token' .
+          \ ' to check updated plugins.')
+    return
+  endif
+  if !executable(g:dein#install_curl_command)
+    call s:error('curl must be executable to check updated plugins.')
+    return
+  endif
+
+  let s:global_context.progress_type = 'echo'
+
+  let query_max = 100
+  let plugins = dein#util#_get_plugins(a:plugins)
+  let processes = []
+  for index in range(0, len(plugins) - 1, query_max)
+    redraw
+    call s:print_progress_message(
+         \s:get_progress_message('', index, len(plugins)))
+
+    let query = ''
+    for plug_index in range(index,
+          \ min([index + query_max, len(plugins)]) - 1)
+      let plugin_names = split(plugins[plug_index].repo, '/')
+      if len(plugin_names) < 2
+        " Invalid repository name.
+        continue
+      endif
+
+      " Note: "repository" API is faster than "search" API
+      let query .= printf('a%d:repository(owner:\"%s\", name: \"%s\")' .
+            \ '{ pushedAt nameWithOwner }',
+            \ plug_index, plugin_names[-2], plugin_names[-1])
+    endfor
+
+    let commands = [
+         \ g:dein#install_curl_command, '-H', 'Authorization: bearer ' .
+         \ g:dein#install_github_api_token,
+         \ '-X', 'POST', '-d',
+         \ '{ "query": "query {' . query . '}" }',
+         \ 'https://api.github.com/graphql'
+         \ ]
+
+    let process = {'candidates': []}
+    function! process.on_out(data) abort
+      let candidates = self.candidates
+      if empty(candidates)
+        call add(candidates, a:data[0])
+      else
+        let candidates[-1] .= a:data[0]
+      endif
+      let candidates += a:data[1:]
+    endfunction
+    let process.job = s:get_job().start(
+        \ s:convert_args(commands),
+        \ {'on_stdout': function(process.on_out, [], process)})
+
+    call add(processes, process)
+  endfor
+
+  " Get outputs
+  let results = []
+  for process in processes
+    call process.job.wait(g:dein#install_process_timeout * 1000)
+
+    if !empty(process.candidates)
+      try
+        let json = json_decode(process.candidates[0])
+        let results += filter(values(json['data']),
+              \ "type(v:val) == v:t_dict && has_key(v:val, 'pushedAt')")
+      catch
+        call s:error('json output decode error: ' + string(result))
+      endtry
+    endif
+  endfor
+
+  " Get pushed time.
+
+  let check_pushed = {}
+  for node in results
+    let format = '%Y-%m-%dT%H:%M:%SZ'
+    let pushed_at = node['pushedAt']
+    let check_pushed[node['nameWithOwner']] =
+          \ exists('*strptime') ?
+          \  strptime(format, pushed_at) :
+          \ has('nvim') ?
+          \  msgpack#strptime(format, pushed_at) :
+          \ s:get_datetime().from_format(pushed_at, format).unix_time()
+  endfor
+
+  " Get the last updated time by rollbackfile timestamp.
+  " Note: .git timestamp may be changed by git commands.
+  let rollbacks = reverse(sort(dein#util#_globlist(
+        \ s:get_rollback_directory() . '/*')))
+  let rollback_time = empty(rollbacks) ? -1 : getftime(rollbacks[0])
+
+  " Compare with .git directory updated time.
+  let updated = []
+  for plugin in plugins
+    if !has_key(check_pushed, plugin.repo)
+      continue
+    endif
+
+    let git_path = plugin.path . '/.git'
+    let repo_time = isdirectory(plugin.path) ? getftime(git_path) : -1
+
+    if min([repo_time, rollback_time]) < check_pushed[plugin.repo]
+      call add(updated, plugin)
+    endif
+  endfor
+
+  redraw | echo ''
+
+  " Clear global context
+  let s:global_context = {}
+
+  if empty(updated)
+    call dein#util#_notify(strftime('Done: (%Y/%m/%d %H:%M:%S)'))
+    return
+  endif
+
+  call dein#util#_notify('Updated plugins: ' .
+        \ string(map(copy(updated), 'v:val.name')))
+  if !a:force && confirm(
+        \ 'Updated plugins are exists. Update now?', "yes\nNo", 2) != 1
+    return
+  endif
+
+  call dein#install#_update(updated, 'update', a:async)
 endfunction
 
 function! dein#install#_reinstall(plugins) abort
@@ -151,39 +289,17 @@ function! dein#install#_direct_install(repo, options) abort
   endif
 endfunction
 function! dein#install#_rollback(date, plugins) abort
-  let plugins = dein#util#_get_plugins(a:plugins)
-
   let glob = s:get_rollback_directory() . '/' . a:date . '*'
   let rollbacks = reverse(sort(dein#util#_globlist(glob)))
   if empty(rollbacks)
     return
   endif
 
-  let revisions = json_decode(readfile(rollbacks[0])[0])
-
-  call filter(plugins, "has_key(revisions, v:val.name)
-        \ && has_key(dein#util#_get_type(v:val.type),
-        \            'get_rollback_command')
-        \ && s:check_rollback(v:val)
-        \ && s:get_revision_number(v:val) !=# revisions[v:val.name]")
-  if empty(plugins)
-    return
-  endif
-
-  for plugin in plugins
-    let type = dein#util#_get_type(plugin.type)
-    let cmd = type.get_rollback_command(
-          \ dein#util#_get_type(plugin.type), revisions[plugin.name])
-    call dein#install#_each(cmd, plugin)
-  endfor
-
-  call dein#recache_runtimepath()
-  call s:error('Rollback to '.fnamemodify(rollbacks[0], ':t').' version.')
+  call dein#install#_load_rollback(rollbacks[0], a:plugins)
 endfunction
 
 function! dein#install#_recache_runtimepath() abort
   if g:dein#_is_sudo
-    call s:error('recache_runtimepath() is disabled in sudo session.')
     return
   endif
 
@@ -214,27 +330,18 @@ function! dein#install#_recache_runtimepath() abort
   call s:merge_files(plugins, 'ftdetect')
   call s:merge_files(plugins, 'after/ftdetect')
 
-  if !has('vim_starting')
-    if exists('g:did_load_filetypes')
-      filetype off | filetype on
-    endif
-    silent! runtime! plugin/**/*.vim
-  endif
-
   silent call dein#remote_plugins()
 
   call dein#call_hook('post_source')
 
-  call dein#util#_save_merged_plugins(
-        \ sort(map(values(g:dein#_plugins), 'v:val.repo')))
+  call dein#util#_save_merged_plugins()
 
-  call s:save_rollback()
+  call dein#install#_save_rollback(
+        \ s:get_rollback_directory() . '/' . strftime('%Y%m%d%H%M%S'), [])
 
   call dein#clear_state()
 
-  call s:log([strftime('Runtimepath updated: (%Y/%m/%d %H:%M:%S)')])
-
-  call dein#call_hook('done_update')
+  call s:log(strftime('Runtimepath updated: (%Y/%m/%d %H:%M:%S)'))
 endfunction
 function! s:clear_runtimepath() abort
   if dein#util#_get_cache_path() ==# ''
@@ -301,17 +408,40 @@ endfunction
 function! s:list_directory(directory) abort
   return dein#util#_globlist(a:directory . '/*')
 endfunction
-function! s:save_rollback() abort
+function! dein#install#_save_rollback(rollbackfile, plugins) abort
   let revisions = {}
-  for plugin in filter(values(dein#get()), 's:check_rollback(v:val)')
+  for plugin in filter(dein#util#_get_plugins(a:plugins),
+        \ 's:check_rollback(v:val)')
     let rev = s:get_revision_number(plugin)
     if rev !=# ''
       let revisions[plugin.name] = rev
     endif
   endfor
 
-  let dest = s:get_rollback_directory() . '/' . strftime('%Y%m%d%H%M%S')
-  call writefile([json_encode(revisions)], dest)
+  call writefile([json_encode(revisions)], expand(a:rollbackfile))
+endfunction
+function! dein#install#_load_rollback(rollbackfile, plugins) abort
+  let revisions = json_decode(readfile(a:rollbackfile)[0])
+
+  let plugins = dein#util#_get_plugins(a:plugins)
+  call filter(plugins, "has_key(revisions, v:val.name)
+        \ && has_key(dein#util#_get_type(v:val.type),
+        \            'get_rollback_command')
+        \ && s:check_rollback(v:val)
+        \ && s:get_revision_number(v:val) !=# revisions[v:val.name]")
+  if empty(plugins)
+    return
+  endif
+
+  for plugin in plugins
+    let type = dein#util#_get_type(plugin.type)
+    let cmd = type.get_rollback_command(
+          \ dein#util#_get_type(plugin.type), revisions[plugin.name])
+    call dein#install#_each(cmd, plugin)
+  endfor
+
+  call dein#recache_runtimepath()
+  call s:error('Rollback to '.fnamemodify(a:rollbackfile, ':t').' version.')
 endfunction
 function! s:get_rollback_directory() abort
   let parent = printf('%s/rollbacks/%s',
@@ -323,9 +453,7 @@ function! s:get_rollback_directory() abort
   return parent
 endfunction
 function! s:check_rollback(plugin) abort
-  return !has_key(a:plugin, 'local')
-        \ && !get(a:plugin, 'frozen', 0)
-        \ && get(a:plugin, 'rev', '') ==# ''
+  return !has_key(a:plugin, 'local') && !get(a:plugin, 'frozen', 0)
 endfunction
 
 function! dein#install#_get_default_ftplugin() abort
@@ -392,7 +520,7 @@ function! s:generate_ftplugin() abort
         \ dein#util#_get_runtime_path() . '/ftplugin.vim')
 
   " Generate after/ftplugin
-  for [filetype, list] in items(ftplugin)
+  for [filetype, list] in filter(items(ftplugin), "v:val[0] !=# '_'")
     call writefile(list, printf('%s/%s.vim', after, filetype))
   endfor
 endfunction
@@ -402,7 +530,17 @@ function! dein#install#_is_async() abort
 endfunction
 
 function! dein#install#_polling() abort
-  return s:install_async(s:global_context)
+  if exists('+guioptions')
+    " Note: guioptions-! does not work in async state
+    let save_guioptions = &guioptions
+    set guioptions-=!
+  endif
+
+  call s:install_async(s:global_context)
+
+  if exists('+guioptions')
+    let &guioptions = save_guioptions
+  endif
 endfunction
 
 function! dein#install#_remote_plugins() abort
@@ -410,18 +548,30 @@ function! dein#install#_remote_plugins() abort
     return
   endif
 
+  if has('vim_starting')
+    " Note: UpdateRemotePlugins is not defined in vim_starting
+    autocmd dein VimEnter * silent call dein#remote_plugins()
+    return
+  endif
+
+  if exists(':UpdateRemotePlugins') != 2
+    return
+  endif
+
   " Load not loaded neovim remote plugins
   let remote_plugins = filter(values(dein#get()),
-        \ "isdirectory(v:val.rtp . '/rplugin')")
+        \ "isdirectory(v:val.rtp . '/rplugin') && !v:val.sourced")
 
   call dein#autoload#_source(remote_plugins)
+
+  call s:log('loaded remote plugins: ' .
+        \ string(map(copy(remote_plugins), 'v:val.name')))
 
   let &runtimepath = dein#util#_join_rtp(dein#util#_uniq(
         \ dein#util#_split_rtp(&runtimepath)), &runtimepath, '')
 
-  if exists(':UpdateRemotePlugins') == 2
-    UpdateRemotePlugins
-  endif
+  let result = execute('UpdateRemotePlugins', '')
+  call s:log(result)
 endfunction
 
 function! dein#install#_each(cmd, plugins) abort
@@ -478,9 +628,12 @@ function! dein#install#_get_progress() abort
   return s:progress
 endfunction
 
-function! s:get_progress_message(plugin, number, max) abort
-  return printf('(%'.len(a:max).'d/%d) [%-20s] %s',
-        \ a:number, a:max, repeat('=', (a:number*20/a:max)), a:plugin.name)
+function! s:get_progress_message(name, number, max) abort
+  return printf('(%'.len(a:max).'d/%'.len(a:max).'d) [%s%s] %s',
+        \ a:number, a:max,
+        \ repeat('+', (a:number*20/a:max)),
+        \ repeat('-', 20 - (a:number*20/a:max)),
+        \ a:name)
 endfunction
 function! s:get_plugin_message(plugin, number, max, message) abort
   return printf('(%'.len(a:max).'d/%d) |%-20s| %s',
@@ -492,10 +645,7 @@ endfunction
 function! s:get_sync_command(plugin, update_type, number, max) abort "{{{i
   let type = dein#util#_get_type(a:plugin.type)
 
-  if a:update_type ==# 'check_update'
-        \ && has_key(type, 'get_fetch_remote_command')
-    let cmd = type.get_fetch_remote_command(a:plugin)
-  elseif has_key(type, 'get_sync_command')
+  if has_key(type, 'get_sync_command')
     let cmd = type.get_sync_command(a:plugin)
   else
     return ['', '']
@@ -510,10 +660,17 @@ function! s:get_sync_command(plugin, update_type, number, max) abort "{{{i
   return [cmd, message]
 endfunction
 function! s:get_revision_number(plugin) abort
+  if !isdirectory(a:plugin.path)
+    return ''
+  endif
+
   let type = dein#util#_get_type(a:plugin.type)
 
-  if !isdirectory(a:plugin.path)
-        \ || !has_key(type, 'get_revision_number_command')
+  if has_key(type, 'get_revision_number')
+    return type.get_revision_number(a:plugin)
+  endif
+
+  if !has_key(type, 'get_revision_number_command')
     return ''
   endif
 
@@ -536,23 +693,6 @@ function! s:get_revision_number(plugin) abort
   endif
   return rev
 endfunction
-function! s:get_revision_remote(plugin) abort
-  let type = dein#util#_get_type(a:plugin.type)
-
-  if !isdirectory(a:plugin.path)
-        \ || !has_key(type, 'get_revision_remote_command')
-    return ''
-  endif
-
-  let cmd = type.get_revision_remote_command(a:plugin)
-  if empty(cmd)
-    return ''
-  endif
-
-  let rev = s:system_cd(cmd, a:plugin.path)
-  " If rev contains spaces, it is error message
-  return (rev !~# '\s') ? rev : ''
-endfunction
 function! s:get_updated_log_message(plugin, new_rev, old_rev) abort
   let type = dein#util#_get_type(a:plugin.type)
 
@@ -568,8 +708,6 @@ function! s:lock_revision(process, context) abort
   let max = a:context.max_plugins
   let plugin = a:process.plugin
 
-  let plugin.new_rev = s:get_revision_number(plugin)
-
   let type = dein#util#_get_type(plugin.type)
   if !has_key(type, 'get_revision_lock_command')
     return 0
@@ -577,7 +715,7 @@ function! s:lock_revision(process, context) abort
 
   let cmd = type.get_revision_lock_command(plugin)
 
-  if empty(cmd) || plugin.new_rev ==# get(plugin, 'rev', '')
+  if empty(cmd)
     " Skipped.
     return 0
   elseif type(cmd) == v:t_string && cmd =~# '^E: '
@@ -611,8 +749,7 @@ function! s:get_updated_message(context, plugins) abort
         \                     : printf('(%d change%s)',
         \                              v:val.commit_count,
         \                              (v:val.commit_count == 1 ? '' : 's')))
-        \    . ((a:context.update_type !=# 'check_update'
-        \        && v:val.old_rev !=# ''
+        \    . ((v:val.old_rev !=# ''
         \        && v:val.uri =~# '^\\h\\w*://github.com/') ? \"\\n\"
         \      . printf('    %s/compare/%s...%s',
         \        substitute(substitute(v:val.uri, '\\.git$', '', ''),
@@ -711,19 +848,17 @@ function! dein#install#_rm(path) abort
     return
   endif
 
-  " Todo: use :python3 instead.
-
-  " Note: delete rf is broken
-  " if has('patch-7.4.1120')
-  "   try
-  "     call delete(a:path, 'rf')
-  "   catch
-  "     call s:error('Error deleting directory: ' . a:path)
-  "     call s:error(v:exception)
-  "     call s:error(v:throwpoint)
-  "   endtry
-  "   return
-  " endif
+  " Note: delete rf is broken before Vim 8.1.1378
+  if has('patch-8.1.1378')
+    try
+      call delete(a:path, 'rf')
+    catch
+      call s:error('Error deleting directory: ' . a:path)
+      call s:error(v:exception)
+      call s:error(v:throwpoint)
+    endtry
+    return
+  endif
 
   " Note: In Windows, ['rmdir', '/S', '/Q'] does not work.
   " After Vim 8.0.928, double quote escape does not work in job.  Too bad.
@@ -733,7 +868,7 @@ function! dein#install#_rm(path) abort
     let cmdline = substitute(cmdline, '/', '\\\\', 'g')
   endif
 
-  let rm_command = dein#util#_is_windows() ? 'rmdir /S /Q' : 'rm -rf'
+  let rm_command = dein#util#_is_windows() ? 'cmd /C rmdir /S /Q' : 'rm -rf'
   let cmdline = rm_command . cmdline
   let result = system(cmdline)
   if v:shell_error
@@ -741,7 +876,7 @@ function! dein#install#_rm(path) abort
   endif
 
   " Error check.
-  if getftype(a:path) != ''
+  if getftype(a:path) !=# ''
     call dein#util#_error(printf('"%s" cannot be removed.', a:path))
     call dein#util#_error(printf('cmdline is "%s".', cmdline))
   endif
@@ -764,7 +899,7 @@ function! dein#install#_copy_directories(srcs, dest) abort
 
     try
       let lines = ['@echo off']
-      let format ='robocopy %s /E /NJH /NJS /NDL /NC /NS /MT /XO /XD ".git"'
+      let format ='robocopy.exe %s /E /NJH /NJS /NDL /NC /NS /MT /XO /XD ".git"'
       for src in a:srcs
         call add(lines, printf(format,
               \                substitute(printf('"%s" "%s"', src, a:dest),
@@ -776,10 +911,9 @@ function! dein#install#_copy_directories(srcs, dest) abort
       call delete(temp)
     endtry
 
-    " For some baffling reason robocopy almost always returns between 1 and 3
-    " upon success
+    " Robocopy returns between 0 and 7 upon success
     let status = dein#install#_status()
-    let status = (status > 3) ? status : 0
+    let status = (status > 7) ? status : 0
 
     if status
       call dein#util#_error('copy command failed.')
@@ -847,7 +981,7 @@ function! s:install_async(context) abort
         \ && a:context.number < len(a:context.plugins)
     let plugin = a:context.plugins[a:context.number]
     call s:print_progress_message(
-          \ s:get_progress_message(plugin,
+          \ s:get_progress_message(plugin.name,
           \   a:context.number, a:context.max_plugins))
     let a:context.prev_number = a:context.number
   endif
@@ -863,7 +997,7 @@ function! s:check_loop(context) abort
 
     if !a:context.async
       call s:print_progress_message(
-            \ s:get_progress_message(plugin,
+            \ s:get_progress_message(plugin.name,
             \   a:context.number, a:context.max_plugins))
     endif
   endwhile
@@ -930,12 +1064,21 @@ endfunction
 function! s:done(context) abort
   call s:restore_view(a:context)
 
-  call s:notify(s:get_updated_message(a:context, a:context.synced_plugins))
-  call s:notify(s:get_errored_message(a:context.errored_plugins))
-
-  if a:context.update_type !=# 'check_update'
-    call dein#install#_recache_runtimepath()
+  if !has('vim_starting')
+    call s:notify(s:get_updated_message(a:context, a:context.synced_plugins))
+    call s:notify(s:get_errored_message(a:context.errored_plugins))
   endif
+
+  call dein#install#_recache_runtimepath()
+
+  if !empty(a:context.synced_plugins)
+    call dein#call_hook('done_update', a:context.synced_plugins)
+    call dein#source(map(copy(a:context.synced_plugins), 'v:val.name'))
+  endif
+
+  redraw
+  echo ''
+
   call s:notify(strftime('Done: (%Y/%m/%d %H:%M:%S)'))
 
   " Disable installation handler
@@ -1018,9 +1161,10 @@ function! s:init_process(plugin, context, cmd) abort
           \ 'installed': isdirectory(a:plugin.path),
           \ }
 
+    let rev_save = get(a:plugin, 'rev', '')
     if isdirectory(a:plugin.path)
           \ && !get(a:plugin, 'local', 0)
-      let rev_save = get(a:plugin, 'rev', '')
+          \ && rev_save !=# ''
       try
         " Force checkout HEAD revision.
         " The repository may be checked out.
@@ -1080,7 +1224,7 @@ function! s:init_job(process, context, cmd) abort
     let candidates = get(a:process.job, 'candidates', [])
     let output = join((self.eof ? candidates : candidates[: -2]), "\n")
     if output !=# ''
-      let a:process.output .= output
+      let a:process.output = output
       let a:process.start_time = localtime()
       call s:log(s:get_short_message(
             \ a:process.plugin, a:process.number,
@@ -1113,7 +1257,7 @@ function! s:init_job(process, context, cmd) abort
         \   'on_stderr': a:process.async.job_handler,
         \   'on_exit': a:process.async.on_exit,
         \ })
-  let a:process.id = a:process.job.id()
+  let a:process.id = a:process.job.pid()
   let a:process.job.candidates = []
 endfunction
 function! s:check_output(context, process) abort
@@ -1132,15 +1276,13 @@ function! s:check_output(context, process) abort
   let plugin = a:process.plugin
 
   if isdirectory(plugin.path)
-        \ && get(plugin, 'rev', '') !=# ''
-        \ && !get(plugin, 'local', 0)
+       \ && get(plugin, 'rev', '') !=# ''
+       \ && !get(plugin, 'local', 0)
     " Restore revision.
     call s:lock_revision(a:process, a:context)
   endif
 
-  let new_rev = (a:context.update_type ==# 'check_update') ?
-        \ s:get_revision_remote(plugin) :
-        \ s:get_revision_number(plugin)
+  let new_rev = s:get_revision_number(plugin)
 
   if is_timeout || status
     call s:log(s:get_plugin_message(plugin, num, max, 'Error'))
@@ -1162,23 +1304,16 @@ function! s:check_output(context, process) abort
     call add(a:context.errored_plugins,
           \ plugin)
   elseif a:process.rev ==# new_rev
-        \ || (a:context.update_type ==# 'check_update' && new_rev ==# '')
-    if a:context.update_type !=# 'check_update'
-      call s:log(s:get_plugin_message(
-            \ plugin, num, max, 'Same revision'))
-    endif
+    call s:log(s:get_plugin_message(
+          \ plugin, num, max, 'Same revision'))
   else
     call s:log(s:get_plugin_message(plugin, num, max, 'Updated'))
 
-    if a:context.update_type !=# 'check_update'
-      let log_messages = split(s:get_updated_log_message(
-            \   plugin, new_rev, a:process.rev), '\n')
-      let plugin.commit_count = len(log_messages)
-      call s:log(map(log_messages,
-            \   's:get_short_message(plugin, num, max, v:val)'))
-    else
-      let plugin.commit_count = 0
-    endif
+    let log_messages = split(s:get_updated_log_message(
+          \   plugin, new_rev, a:process.rev), '\n')
+    let plugin.commit_count = len(log_messages)
+    call s:log(map(log_messages,
+          \   's:get_short_message(plugin, num, max, v:val)'))
 
     let plugin.old_rev = a:process.rev
     let plugin.new_rev = new_rev
@@ -1190,6 +1325,7 @@ function! s:check_output(context, process) abort
     let cwd = getcwd()
     try
       call dein#install#_cd(plugin.path)
+
       call dein#call_hook('post_update', plugin)
     finally
       call dein#install#_cd(cwd)

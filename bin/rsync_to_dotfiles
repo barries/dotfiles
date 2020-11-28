@@ -3,4 +3,4 @@
 set -eo pipefail
 shopt -s nullglob
 
-rsync --existing -v -a --exclude=.git ~ ~/dotfiles
+rsync --existing -v -a --exclude=.git ~/ ~/dotfiles

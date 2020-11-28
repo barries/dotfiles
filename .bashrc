@@ -101,7 +101,7 @@ if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
 fi
 
-source  /usr/share/bash-completion/completions/tmuxinator
+source /usr/share/bash-completion/completions/tmuxinator
 
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
@@ -115,4 +115,15 @@ if ! shopt -oq posix; then
 fi
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
 
-export IV_LINT_TESTIDS=disable
+source /home/barries/bin/iv_station_shortcut_bash_completions.rc
+
+export DISPLAY_FN=~/tmp/DISPLAY.rc
+
+# Allow existing bash shells to adapt when a new bash is started with working X forwarding.
+if [[ ! -z $DISPLAY && -z $DISPLAY_SET && -d ~/tmp ]] && xset q >/dev/null 2>&1; then
+    echo "if [[ \$DISPLAY != $DISPLAY ]] && DISPLAY='$DISPLAY' xset q > /dev/null 2>&1; then export 'DISPLAY=$DISPLAY'; fi" > $DISPLAY_FN
+fi
+
+export DISPLAY_SET=yes
+
+PROMPT_COMMAND='if [[ -f $DISPLAY_FN ]] ; then source $DISPLAY_FN; fi'

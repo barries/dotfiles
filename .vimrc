@@ -1,15 +1,44 @@
 "dein Scripts-----------------------------
 if &compatible
- set nocompatible               " Be iMproved
+  set nocompatible               " Be iMproved
 endif
 
-set runtimepath+=/home/barries/.vim/bundle/repos/github.com/Shougo/dein.vim
+syn off
 
-if dein#load_state('/home/barries/.vim/bundle/')
-  call dein#begin('/home/barries/.vim/bundle/')
+set runtimepath^=~/.vim
+
+" Manual vim-mark mappings.
+"
+" vim-mark maps a fair number of sequences, including \r, which
+" I map for replace, and # and *, which make search on marks
+" not work intuitively for me.
+"
+" Its \n (clear marks) has a caveat that repeating \m doesn't
+" have, and repeating \m to clear the highlighted mark is all
+" I need.
+
+let g:mw_no_mappings               = 1   " 1: Tell mark.vim not to install global mappings
+let g:mwHistAdd                    = ''  " '': Don't auto add to search or input histories
+let g:mwDefaultHighlightingPalette = 'extended'
+
+if !len(maparg('<Leader>m', 'n'))
+    nmap <unique> <Leader>m <Plug>MarkSet
+    xmap <unique> <Leader>m <Plug>MarkSet
+endif
+
+" Begin dein Config--------------------------
+
+set runtimepath+=~/.vim/bundle/repos/github.com/Shougo/dein.vim
+
+if len($TMUX)
+    let $DISPLAY=''   " Prevent slowness in tmux. TODO: Only run this if in tmux
+endif
+
+"if dein#load_state('~/.vim/bundle/')
+  call dein#begin('~/.vim/bundle/')
 
   " Let dein manage dein
-  call dein#add(expand('/home/barries/.vim/bundle/repos/github.com/Shougo/dein.vim'))
+  call dein#add(expand('~/.vim/bundle/repos/github.com/Shougo/dein.vim'))
 
   " Add or remove your plugins here:
   " Removed for now (barries): call dein#add('Shougo/neosnippet.vim')
@@ -23,36 +52,45 @@ if dein#load_state('/home/barries/.vim/bundle/')
   call dein#add('godlygeek/tabular')
   call dein#add('inkarkat/vim-ingo-library')
   call dein#add('inkarkat/vim-mark') " sets maps on \r *after* .vimrc exit, see VimEnter_Initialize()
+  call dein#add('kana/vim-submode')
+  call dein#add('nvim-treesitter/nvim-treesitter')
+  call dein#add('mbbill/undotree')
   "call dein#add('vim-scripts/Align')
+  "
 
   " Required:
   call dein#end()
   call dein#save_state()
-endif
+"endif
 
 "source plugin/AnsiEsc.vim
 
 filetype plugin indent on
-syntax enable
+"syntax enable
 
 " If you want to install not installed plugins on startup.
 "if dein#check_install()
 "  call dein#install()
 "endif
 
-"End dein Scripts-------------------------
+" End dein Scripts-------------------------
+
+au FileType c   setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
+au FileType cpp setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
+au FileType c   setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
+
+colorscheme barries
+"syn on
 
 " Appearance
 if !has("nvim")
     set ttymouse=xterm2 " Allow mouse to drag splits
     set t_Co=256
     let $GIT_EDITOR = 'nvr -cc split --remote-wait'
+    set termguicolors
 endif
 
-set runtimepath^=~barries/.vim
-
-colorscheme barries
-syn on
+" FZF Config ----------------
 
 set runtimepath^=~/.fzf
 
@@ -73,7 +111,6 @@ function! s:handle_fzf_enter(cmd, lines) abort
   endtry
 endfunction
 
-
 let g:fzf_action = {
   \ 'ctrl-t': 'tab split',
   \ 'ctrl-x': function('s:handle_fzf_enter', ['split' ]),
@@ -88,15 +125,40 @@ function! s:shortpath()
   endif
   let slash = '/'
   return empty(short) ? '~'.slash : short . (short =~ escape(slash, '\').'$' ? '' : slash)
+endfun
+
+function! s:Handle_FZF_filelist(fn)
+    execute "e" a:fn
+    if s:line_number >= 0
+        execute s:line_number
+    endif
 endfunc
 
 function! E_command(...)
     let opts = {
-        \ 'options': ['--multi', '--select-1', '-i', '--tiebreak=end,length'],
+        \ 'options': ['--multi', '--select-1', '--tiebreak=end,length'],
         \ 'window': 'vertical aboveleft 100new'
     \ }
 
     let args = deepcopy(a:000)
+
+    let s:line_number = -1  " -1: no line number
+    if len(args)
+        let last_arg = args[-1]
+
+        " Let users paste in compiler errors like "Foo/Bar.cpp:10"
+        let offset = match(last_arg, ":")
+        if offset >= 0
+            if offset > 0
+                let args[-1] = last_arg[0:offset-1]
+            elseif len(args) > 1
+                let args = args[0:len(args)-2]
+            else
+                let args = []
+            end
+            let s:line_number = last_arg[offset+1:]
+        endif
+    endif
 
     let prompt = s:shortpath()
     if len(args)
@@ -122,12 +184,34 @@ function! E_command(...)
     let prompt = strwidth(prompt) < &columns - 20 ? prompt : '> '
     call extend(opts.options, ['--prompt', prompt])
 
+    let opts.sink = function('s:Handle_FZF_filelist')
+
     call fzf#run(fzf#wrap('E', opts))
 endfunc
 
 command! -nargs=* -complete=file_in_path E     call E_command(<f-args>)
 
 command! -nargs=* -range                 Align call Tabularize(<f-args>)
+
+"End FZF------------------------------------
+
+function! s:RunShellCommand(cmdline)
+    let expanded_cmdline = a:cmdline
+    for part in split(a:cmdline, ' ')
+        if part[0] =~ '\v[%#<]'
+            let expanded_part = fnameescape(expand(part))
+            let expanded_cmdline = substitute(expanded_cmdline, part, expanded_part, '')
+        endif
+    endfor
+    tabnew
+    setlocal buftype=nofile bufhidden=wipe nobuflisted noswapfile nowrap
+    execute 'read !'. expanded_cmdline
+    execute '1d'
+    setlocal nomodifiable
+    1
+endfunc
+
+command! -complete=shellcmd -nargs=+ Shell call s:RunShellCommand(<q-args>)
 
 autocmd VimEnter * call VimEnter_Initialize()
 
@@ -138,8 +222,6 @@ let g:VimEnter_Initialize = 1
 
 " cabbrev <expr> e (getcmdtype()==':' && getcmdpos()<=2 ? 'E' : 'e')
 cmap <expr> <leader><Tab> CmdLineTab()
-
-nmap <C-\> <leader>
 
 vmap <leader>a :Align /
 
@@ -173,6 +255,8 @@ function! CmdLineTab()
     return "\<Esc>:call E_command('" . join(args). "')\<CR>"
 endfunc
 
+command! ClearTerminal call ClearTerminal()
+
 function! ClearRegs()
     let regs=split('abcdefghijklmnopqrstuvwxyz0123456789/-"', '\zs')
     for r in regs
@@ -185,7 +269,7 @@ command! ClearRegs :call ClearRegs()
 " Disabled: this overrides the foreground in all rows set cursorcolumn
 " Disabled: this overrides the foreground in all rows set cursorline
 
-" Not implemnted yest in nvim: au OptionSet diff let &cul=v:option_new
+" Not implemnted yet in nvim: au OptionSet diff let &cul=v:option_new
 "
 augroup MyCursorLine
   au!
@@ -197,29 +281,50 @@ if &diff
     set cursorline
 end
 
-set foldopen-=hor
+set diffopt+=algorithm:histogram " histogram: better performance than patience or myers
+set diffopt+=indent-heuristic    " indent-heuristic: better context vs. content differentiation, apparently
+set diffopt+=context:3           " 3: allow more diffs to be seen than the default (6)
+
+set foldopen-=hor                " hor: horizonal movement
+
+function! FoldNonmatchingLines()
+    set foldcolumn=3
+    set foldlevel=0
+    set foldmethod=expr
+    set foldexpr=(getline(v:lnum)=~@/)?0:(getline(v:lnum-1)=~@/)\|\|(getline(v:lnum+1)=~@/)?1:2
+    set foldenable
+    autocmd BufLeave <buffer> set nofoldenable | set foldcolumn=0
+    autocmd BufEnter <buffer> set foldenable   | set foldcolumn=3
+endfunction
+
+command! FoldNonmatchingLines call FoldNonmatchingLines(<f-args>)
 
 " Status Line Appearance
 
 set fillchars=vert:\ ,fold:+,diff:\     " Remove pipe character from vertical splits, uses ' ' for deleted line in diff output
 
 function! GetStatusLineRHS()
-    return "%=%9*%l,%v%*\ %p%%"                      " %=: switch to right; %9:*: User9 color; %l: line#; %v: virt. col number; %p: percent
+    return "%=%9*%l,%3v%*\ %3p%%"                      " %=: switch to right; %9:*: User9 color; %l: line#; %v: virt. col number; %p: percent
 endfunction
 
-set statusline=%f\                      " %f: Filename
+set statusline=%f:%l\                   " %f: Filename
 set statusline+=%4*%m%5*%r%w%h%q%*      " %4*: User4 color; %m: modified; %5*: User5Color; %r: readonlyflag; %w: preview flag%h: help; %q: quickfix list; %*: revert color
 let &statusline=&statusline . GetStatusLineRHS()
 
 if has("nvim")
     autocmd TermOpen * let &l:statusline="%{b:term_title}" . GetStatusLineRHS() | set winfixheight | set nonu | set norelativenumber
 
-    map     <silent> <C-W>! :split<CR><C-W><S-J>:term<CR>:startinsert<CR>
+    map     <silent> <C-W>! <C-W><Insert>:term<CR>:startinsert<CR>
     imap    <silent> <C-W>! <Esc><C-W>!
     vmap    <silent> <C-W>! <Esc><C-W>!
     omap    <silent> <C-W>! <Esc><C-W>!
 
 end
+
+map     <silent> <C-W><Insert> :split<CR><C-W><S-J>
+imap    <silent> <C-W><Insert> <Esc><C-W><Insert>
+vmap    <silent> <C-W><Insert> <Esc><C-W><Insert>
+omap    <silent> <C-W><Insert> <Esc><C-W><Insert>
 
 if has("nvim")
     set inccommand=nosplit
@@ -227,7 +332,9 @@ endif
 
 " highlight tabs and trailing whitespace, put $ for extending offscreen
 set list
-set listchars=tab:\ \ ,trail:.,extends:>,precedes:<,nbsp:.
+set listchars=tab:→\ ,trail:·,extends:»,precedes:«,nbsp:☠
+set showbreak=»
+set linebreak
 
 " Display unprintables as <00> hex codes rather than ^@ control codes
 set display+=uhex
@@ -248,30 +355,6 @@ endif
 
 "set colorcolumn=81 " colorize column 81
 set hlsearch       " highlight search terms
-
-" Highlight all instances of word under cursor, when idle.
-" Useful when studying strange source code.
-" Type z/ to toggle highlighting on/off.
-nnoremap z/ :if AutoHighlightToggle()<Bar>set hls<Bar>endif<CR>
-function! AutoHighlightToggle()
-  let @/ = ''
-  if exists('#auto_highlight')
-    au! auto_highlight
-    augroup! auto_highlight
-    setl updatetime=4000
-    echo 'Highlight current word: off'
-    return 0
-  else
-    augroup auto_highlight
-      au!
-      au CursorHold  * normal :Mark\ <C-r><C-w>
-      au CursorMoved * normal :MarkClear
-    augroup end
-    setl updatetime=500
-    echo 'Highlight current word: ON'
-    return 1
-  endif
-endfunction
 
 " State files
 set dir=~/tmp/vim//
@@ -307,7 +390,12 @@ set smarttab      " insert tabs on the start of a line according to
                   "    shiftwidth, not tabstop
 set incsearch     " show search matches as you type
 
-set noequalalways " Don't resize on :split or :close of a window
+if ! &diff
+  " This is disabled by default because, once vim has more than 3 or 4
+  " windows open, relaying out the whole screen makes intentionall
+  " small windows big again.
+  set noequalalways " Don't resize on :split or :close of a window
+endif
 
 set formatoptions+=1  " When wrapping paragraphs, don't end lines
                       " with 1-letter words (looks stupid)
@@ -327,15 +415,15 @@ set winwidth=1      " Don't open windows more than one column when selecting
 set splitbelow
 set splitright
 
+set belloff=esc,wildmode  " esc: quiet <esc> in Normal mode, <wildmode>: quiet cmdline-completion available
+
 set keymodel-=stopsel " Don't let arrow keys exit visual mode
 
 set whichwrap+=<,>,h,l,[,]
 
-" ^E to enter command line mode (like the micro editor)
-imap <C-e> <C-o>:
-
 " Allow control-leader, so that I don't need to exit TERMINAL MODE before
 " swapping tabs, etc.
+nmap <C-\> <leader>
 imap <C-\> <C-o><leader>
 tmap <C-\> <C-\><C-n><leader>
 
@@ -426,15 +514,27 @@ cmap <silent> <M-f>o <Esc><M-f>o
 
 " Open Other related file (Find other files with similar names and different
 " extensions easily.
-map  <expr> <M-f>O OpenOtherRelatedFile("")
-map  <expr> <M-f>C OpenOtherRelatedFile(".cpp")
-map  <expr> <M-f>H OpenOtherRelatedFile(".h")
-map  <expr> <M-f>I OpenOtherRelatedFile(".ivcg")
-map  <expr> <M-f>T OpenOtherRelatedFile("Tests.cpp")
+map  <expr> <M-f>C    OpenOtherRelatedFile(".cpp")
+map  <expr> <leader>C OpenOtherRelatedFile(".cpp")
+map  <expr> <M-f>H    OpenOtherRelatedFile(".h")
+map  <expr> <leader>H OpenOtherRelatedFile(".h")
+map  <expr> <M-f>I    OpenOtherRelatedFile(".ivcg")
+map  <expr> <leader>I OpenOtherRelatedFile(".ivcg")
+map  <expr> <M-f>O    OpenOtherRelatedFile("")
+map  <expr> <leader>O OpenOtherRelatedFile("")
+map  <expr> <M-f>Q    OpenOtherRelatedFile(".qml", "ViewModel")
+map  <expr> <leader>Q OpenOtherRelatedFile(".qml", "ViewModel")
+map  <expr> <M-f>T    OpenOtherRelatedFile("Tests.cpp")
+map  <expr> <leader>T OpenOtherRelatedFile("Tests.cpp")
+map  <expr> <M-f>Y    OpenOtherRelatedFile(".yaml")
+map  <expr> <leader>Y OpenOtherRelatedFile(".yaml")
 
-function! OpenOtherRelatedFile(ext) abort
+function! OpenOtherRelatedFile(ext, ...) abort
     let fn = expand("%:t")
     let new_fn = substitute(fn, '.\zs\.[^.]\+', a:ext, '')
+    if a:0 >= 1
+        let new_fn = substitute(new_fn, a:1, '', '')
+    endif
 
     let exclusion_prefix = "/"
     if fn == expand("%") " Not in a dir
@@ -455,6 +555,335 @@ vmap    <leader>R "zy:windo %s/<c-R>z//g<Left><Left>
 
 " <leader>w: select window by name
 map     <expr> <leader>w SelectWindowByName()
+
+lua <<EOF
+require'nvim-treesitter.configs'.setup {
+  ensure_installed = "maintained", -- one of "all", "maintained" (parsers with maintainers), or a list of languages
+  highlight = {
+    enable = true,              -- false will disable the whole extension
+    -- disable = { "c", "rust" },  -- list of language that will be disabled
+  },
+  incremental_selection = {
+    enable = true,
+  },
+}
+EOF
+
+lua <<EOF
+function x()
+    local a   = vim.api
+    local pos = a.nvim_win_get_cursor(0)
+    local p0 = vim.deepcopy(pos)
+    local p1 = vim.deepcopy(pos)
+    p0[1] = p0[1] - 1
+
+    local b = a.nvim_get_current_buf();
+    local ns  = a.nvim_create_namespace('treesitter/highlighter')
+    local ms  = a.nvim_buf_get_extmarks(b, ns, p0, p1, {})
+    print(vim.inspect(ms))
+end
+
+local parsers = require "nvim-treesitter.parsers"
+local queries = require'nvim-treesitter.query'
+local ts_utils = require'nvim-treesitter.ts_utils'
+local utils = require'nvim-treesitter.utils'
+
+local hlmap = vim.treesitter.highlighter.hl_map
+
+function show_hl_captures()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local lang = parsers.get_buf_lang(bufnr)
+  local hl_captures = vim.tbl_keys(hlmap)
+
+  if not lang then return end
+
+  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+  row = row - 1
+
+  local matches = {}
+  for m in queries.iter_group_results(bufnr, 'highlights') do
+    for _, c in pairs(hl_captures) do
+      local node = utils.get_at_path(m, c..'.node')
+      if node and ts_utils.is_in_node_range(node, row, col) then
+        table.insert(matches, '@'..c..' -> '..hlmap[c])
+      end
+    end
+  end
+  if #matches == 0 then
+    matches = {"No tree-sitter matches found!"}
+  end
+  local bnr, wnr = vim.lsp.util.open_floating_preview(matches, "treesitter-hl-captures", { pad_left = 1, pad_top = 0, pad_right = 1, pad_bottom = 0 })
+  vim.api.nvim_win_set_option(wnr, 'winhl', 'Normal:NormalFloat')
+end
+
+local function compare_row_col(arow, acol, brow, bcol)
+    if     arow < brow then return -1
+    elseif arow > brow then return  1
+    elseif acol < bcol then return -1
+    elseif acol > bcol then return  1
+    else                    return  0
+    end
+end
+
+local function get_first_tree_root()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local lang = parsers.get_buf_lang(bufnr)
+    local parser = vim.treesitter.get_parser()
+    local trees = parser:parse()
+    local tree = trees[1]
+    return tree:root()
+end
+
+function get_visual_range()
+    vim.cmd('normal! gv')
+    local mode = vim.fn.mode()
+    if mode ~= 'v' then
+        vim.cmd('normal! v')
+    end
+    local _, vrow, vcol = unpack(vim.fn.getpos("v"))
+    local _, crow, ccol = unpack(vim.fn.getpos("."))
+
+    local is_reversed = compare_row_col(vrow, vcol, crow, ccol) > 0
+    if is_reversed then
+        vrow, vcol, crow, ccol = crow, ccol, vrow, vcol
+    end
+
+    vrow = vrow - 1
+    vcol = vcol - 1
+    crow = crow - 1
+
+    return is_reversed, mode, vrow, vcol, crow, ccol
+end
+
+local function get_node_for_visual_range(vrow, vcol, crow, ccol)
+    local is_reversed, mode, vrow, vcol, crow, ccol = get_visual_range()
+    return get_first_tree_root():descendant_for_range(vrow, vcol, crow, ccol)
+end
+
+function enumerate_visual_nodes(node, indent)
+    if node == nil then
+        node = get_node_for_visual_range()
+    end
+
+    vim.cmd('normal! \\<Esc>')
+
+    if indent == nil then
+        indent = "  "
+    end
+
+    local next_indent = indent .. "  "
+    for child in node:iter_children() do
+        print(indent .. child:type())
+        enumerate_visual_nodes(child, next_indent)
+    end
+end
+
+function grow_visual_region()
+    local is_reversed, mode, vrow, vcol, crow, ccol = get_visual_range()
+
+    local root = get_first_tree_root()
+    local node = root:descendant_for_range(vrow, vcol, crow, ccol)
+
+    if node == root then
+        if mode ~= "v" then
+            vim.cmd("normal!" .. mode)
+        end
+
+        return
+    end
+
+    local srow, scol, erow, ecol = vrow, vcol, crow, ccol
+    local iter_count = 0
+    local select_node = true
+    while iter_count < 100 do          -- prevent inf. loop; 100: big enough to not false positive
+        iter_count = iter_count + 1
+
+        if node == root then
+            break
+        end
+
+        if select_node then
+            -- See if we want to select just a few of node's children, like i( or i{, or grow a list one element at a time
+
+            local first_child
+            local second_child
+            local last_child
+            local second_last_child
+            local last_was_comma_or_open = false
+            local started_just_after_comma_or_open = false
+            local list_element_growth_mode = false
+            local aligned_selection_detector_state = "not_started" -- not_started, started, just_after, after, failed
+            for child in node:iter_children() do
+                if first_child == nil then
+                    first_child = child
+                elseif second_child == nil then
+                    second_child = child
+                end
+
+                local type = child:type()
+
+                if list_element_growth_mode then
+                    if type == "," then
+                        _, _, erow, ecol = child:range()
+                        select_node = false
+                        break
+                    elseif type == ")" or type == "]" or type == "}" then
+                        _, _, erow, ecol = last_child:range()
+                        select_node = false
+                        break
+                    end
+                end
+
+                if aligned_selection_detector_state == "just_after" and type == "," then
+                    if started_just_after_comma_or_open and type == "," then
+                        _, _, erow, ecol = child:range()
+                        select_node = false
+                        break
+                    end
+                end
+
+                if aligned_selection_detector_state == "not_started" then
+                    local sr, sc = child:range()
+                    if sr == srow and sc == scol then
+                        aligned_selection_detector_state = "started"
+                        started_just_after_comma_or_open = last_was_comma_or_open
+                    end
+                end
+
+                if aligned_selection_detector_state == "started" then
+                    local _, _, er, ec = child:range()
+                    local cmp = compare_row_col(er, ec, erow, ecol)
+                    if cmp == 0 then
+                        aligned_selection_detector_state = "just_after"
+                        if type == "," then
+                            list_element_growth_mode = true
+                        end
+                    elseif cmp > 0 then
+                        aligned_selection_detector_state = "failed"
+                    end
+                elseif aligned_selection_detector_state == "just_after" then
+                    aligned_selection_detector_state = "after"
+                end
+
+                last_was_comma_or_open = (type == "," or type == "(" or type == "{" or type == "[") -- TODO: consider C++ <...>; would need to check context
+                second_last_child = last_child
+                last_child = child
+
+            end
+
+            if second_last_child ~= nil
+                and (
+                       (first_child:type() == "(" and last_child:type() == ")")
+                    or (first_child:type() == "{" and last_child:type() == "}")
+                )
+            then
+                local sr, sc = second_child:range()
+                local _, _, er, ec = second_last_child:range()
+                if not (sr == srow and sc == scol and er == erow and ec == ecol) then
+                    srow, scol, erow, ecol = sr, sc, er, ec
+                    select_node = false
+                end
+            end
+
+            if select_node then
+                srow, scol, erow, ecol = node:range()
+                select_node = false
+            end
+        end
+
+        if     compare_row_col(srow, scol, vrow, vcol) < 0
+            or compare_row_col(erow, ecol, crow, ccol) > 0
+        then
+            break
+        end
+
+        local parent = node:parent()
+
+        local use_parent = false
+
+        if node:type() == "comment" then
+            local saw_node = false
+            local count = 0
+            for child in parent:iter_children() do
+                if child == node then
+                    saw_node = true
+                end
+                if child:type() == "comment" then
+                    if count == 0 then
+                        srow, scol = child:range()
+                    end
+                    count = count + 1
+                    _, _, erow, ecol = child:range()
+                elseif saw_node then
+                    use_parent = count == 1
+                    break
+                else
+                    count = 0
+                end
+            end
+        elseif node:type() == ";" or node:type() == "," then
+            local prev_node;
+            for child in parent:iter_children() do
+                if child == node then
+                    if prev_node == nil then
+                        goto cleanup;
+                    end
+                    srow, scol = prev_node:range()
+                    break
+                end
+                prev_node = child
+            end
+        else
+            use_parent = true
+        end
+
+        if use_parent then
+            if parent == root then
+                goto cleanup; -- we almost *never* want to select the whole file
+            end
+            node = parent
+            select_node = true
+
+        end
+    end
+
+    ::cleanup::
+
+    srow = srow + 1
+    scol = scol + 1
+    erow = erow + 1
+
+    local is_line_mode = false
+    if srow < erow then
+        local first_line = vim.fn.getline(srow)
+        local up_to_and_including_first_char = vim.fn.strcharpart(first_line, 0, scol)
+        local is_first_non_whitespace = (string.match(up_to_and_including_first_char, "^[ \t]*[^ \t]$") ~= nil)
+
+        local last_line = vim.fn.getline(erow)
+        local last_char_and_after = vim.fn.strcharpart(last_line, ecol - 1)
+        local is_last_non_whitespace = (string.match(last_char_and_after, "^[^ \t][ \t]*$") ~= nil)
+
+        is_line_mode = is_first_non_whitespace and is_last_non_whitespace
+    end
+
+    if is_reversed then
+        srow, scol, erow, ecol = erow, ecol, srow, scol
+    end
+    vim.fn.setpos('.', { 0, srow, scol, 0 })
+    vim.cmd('normal! o')
+    vim.fn.setpos('.', { 0, erow, ecol, 0 })
+
+    if is_line_mode then
+        vim.cmd('normal! V')
+    end
+end
+EOF
+
+map      <silent> <F10> :lua show_hl_captures()<CR>
+xnoremap <silent> <F10> :lua enumerate_visual_nodes()<CR>
+
+nmap              <M-v> v
+xnoremap <silent> <M-v> :lua grow_visual_region()<CR>
 
 " Searching
 set noignorecase  " don't ignore case when searching
@@ -497,7 +926,7 @@ map     <silent> <C-S-s> :checktime<CR>:w<CR>:diffupdate<CR>
 imap    <silent> <C-S-s> <Esc><C-S-s>i
 vmap    <silent> <C-S-s> <Esc><C-S-s>gv
 if has("nvim")
-    tmap   <silent> <C-S-s> <C-\><C-n>:%w! 
+    tmap   <silent> <C-S-s> <C-\><C-n>:%w!
 endif
 
 " shift-<F4>: close window
@@ -509,9 +938,9 @@ if has("nvim")
 endif
 
 " <F5>: Search filesystem for word under cursor
-map     <silent> <F5> :exec('!grep -rw "' . expand("<cword>") . '" .')<CR>
+map     <silent> <F5> :exec('!grep -rw --exclude-dir cg "' . expand("<cword>") . '" .')<CR>
 imap    <silent> <F5> <Esc><F5>i
-vmap    <silent> <F5> :\<C-u>exec('!grep -r "' . GetVisualSelection() . '" .')<CR>
+vmap    <silent> <F5> :\<C-u>exec('!grep --exclude-dir cg -r "' . GetVisualSelection() . '" .')<CR>
 if has("nvim")
     tmap   <silent> <F5> <C-\><C-n><F5>i
 endif
@@ -529,7 +958,6 @@ function! OnExitSuppressProcessExitedWith0(job_id, code, event)
 endfunction
 
 function! GrepInTerm(pattern) abort
-
     let buf = nvim_create_buf(v:false, v:true)
     let opts = {'relative': 'editor', 'width': 200, 'height': 50, 'col': 10,
         \ 'row': 1, 'anchor': 'NW'}
@@ -538,11 +966,10 @@ function! GrepInTerm(pattern) abort
     call nvim_win_set_option(win, 'winhl', 'Normal:MyHighlight')
     call nvim_set_current_win(win)
 
-    let cmd =  'grep -rw "' . a:pattern . '" *'
+    let cmd =  'grep --exclude-dir cg -rw "' . a:pattern . '" *'
     let opt = { 'on_exit': 'OnExitSuppressProcessExitedWith0' }
     call termopen(cmd . ' ; sleep 0.1', opt) " sleep allows neovim to read all output
     let b:term_title = cmd
-
 endfunction
 
 " <S-F5> (<F15>) to list matching files, which is useful prior to opening
@@ -572,30 +999,27 @@ if has("nvim")
     tmap   <silent> <S-F8>  <Esc>:cprev<CR>
 endif
 
-" <F9>: move to previous window. I often use <F2> to exit terminal mode
-" and the next move is usually to move to the previous window.
-map  <F9> <C-w>p
-vmap <F9> <Esc><F9>
-if has("nvim")
-    tmap   <silent> <F9>    <F2><F9>
-endif
-
 " Show syntax stack (developer hack, easily moved)
-" function! SynStack()
-"   if !exists("*synstack")
-"       return
-"   endif
-"   return "[".join(map(synstack(line('.'), col('.')), 'synIDattr(v:val, "name")'),",")."]"
-" endfunc
-"
-" map    <silent> <TBD>   :echo "hi<".synIDattr(synID(line("."),col("."),1),"name").'> trans<'.synIDattr(synID(line("."),col("."),0),"name")."> lo<".synIDattr(synIDtrans(synID(line("."),col("."),1)),"name")."> stack:".SynStack()<CR>
+function! SynStack()
+  if !exists("*synstack")
+      return
+  endif
+  return "[".join(map(synstack(line('.'), col('.')), 'synIDattr(v:val, "name")'),",")."]"
+endfunc
+
+function! SynGroup()
+    let l:s = synID(line('.'), col('.'), 1)
+    return "[" . synIDattr(l:s, 'name') . ' -> ' . synIDattr(synIDtrans(l:s), 'name') . "]"
+endfun
+
+"map    <silent> <F10>   :echo "hi<".synIDattr(synID(line("."),col("."),1),"name").'> trans<'.synIDattr(synID(line("."),col("."),0),"name")."> lo<".synIDattr(synIDtrans(synID(line("."),col("."),1)),"name")."> stack:".SynStack() . " " . SynGroup()<CR>
 
 
 " <F10> Full screen the visual selection
 " <F20> (<S-F10>): Narrow back.
 " The extra <Esc> after the tab new is when coming from vterm's terminal
-vmap   <silent> <F10> :<C-u><F10>
-map    <silent> <F10> :tabclose<CR>
+" vmap   <silent> <F10> :<C-u><F10>
+" map    <silent> <F10> :tabclose<CR>
 
 " <F11>: "full screen"
 map    <silent> <F11> :tab split \| setlocal laststatus=1<CR>100zH
@@ -608,7 +1032,7 @@ endif
 " <F12>: bottom window (usually my terminal window / previous window toggle)
 " Trimming the scrollback like this prevents the terminal from scrolling
 " when not scrolled all the way down. Until 50,000 more lines accumulate.
-map    <silent> <F12> <C-w>b<C-\><C-n>999<C-w>h<C-\><C-n>:set scrollback=50000<CR>:set scrollback=100000<CR>
+map    <silent> <F12> <C-w>b<C-\><C-n>:set scrollback=50000<CR>:set scrollback=100000<CR>
 imap   <silent> <F12> <Esc><F12>
 vmap   <silent> <F12> <Esc><F12>
 
@@ -663,234 +1087,329 @@ function! SyntaxMotion(dir, mode, count)
 endfunction
 
 function! GetChar(at) abort
-  return matchstr(getline(a:at), '\%'.col(a:at).'c.')
+    let l:pos = a:at
+    if type(l:pos) == 1 " 1: string
+        let l:pos = getpos(l:pos)
+    endif
+
+    let l:line = getline(l:pos[1])
+    let l:index = l:pos[2] - 1
+
+    if l:index < 0 || l:index >= strwidth(l:line)
+        return "\n"
+    end
+
+    return strcharpart(line, l:index, 1)
 endfunction
 
-function! MoveCursorOverParensToo(dir)
-  if stridx(a:dir == 'l' ? "([{" : ")]}", GetChar('.')) >= 0
-    let l:start_pos = getpos('.')
-    normal! %
-    return getpos('.') != l:start_pos
+function! CharType(c) abort
+    if a:c =~# '\w'
+      return 'word'
+    elseif a:c =~# '[(){}"''[\]]'
+      return 'pair'
+    elseif a:c == '\n'
+      return 'newline'
+    else
+      return 'other'
+    end
+endfunction
+
+function! GetLineTextObjectExpr(i_or_a) abort
+  let l:vpos = getpos('v')
+  let l:cpos = getpos('.')
+
+  let l:is_reversed = ComparePositions(l:vpos, l:cpos) > 0
+  echom col('$')
+  if !l:is_reversed
+    if a:i_or_a == 'a' || col('$') == 1
+      return 'o0o$'
+    else
+      return 'o0o$h'
+    end
   else
-    return MoveCursor(a:dir)
+    if a:i_or_a == 'a' || col('$') == 1
+      return '0o$o'
+    else
+      return '0o$ho'
+    end
   endif
 endfunction
 
-function! CharPriority(end, c) abort
-    if     match(a:c, "[[:lower:][:upper:]_0-9]") >= 0
-        return 100
-    elseif a:c == "+" || a:c == "-"
-        return  89
-    elseif a:c == "*" || a:c == "/" || a:c == "%"
-        return  88
-    elseif a:c == "&" || a:c == "|" || a:c == "^" || a:c == "~"
-        return  87
-    elseif a:c == "=" || a:c == "!"
-        return  80
-    elseif a:c == "'"
-        return  70
-    elseif a:c == "\""
-        return  60
-    elseif a:c == ":"
-        return  50
-    elseif a:c == "."
-        return  50
-    elseif a:c == ","
-        return  50
-    elseif stridx("]})", a:c) >= 0 && a:end == 'h'
-        return  40
-    elseif stridx("([{", a:c) >= 0 && a:end == 'l'
-        return  40
-    elseif a:c == ";"
-        return  10
-    else
-        if a:c == "" || match(a:c, "[[:space:]]") >= 0
-            return 1
-        endif
-        return 0
-    endif
+vnoremap <expr> il GetLineTextObjectExpr('i')
+vnoremap <expr> al GetLineTextObjectExpr('a')
+
+let s:visual_stack       = []
+let s:visual_stack_index = 0
+
+function! InitVisualRangeStack() abort
+  let s:visual_stack       = []
+  let s:visual_stack_index = 0
 endfunction
 
-function! Grow(start_pos, dir) abort
-  call setpos('.', a:start_pos)
-  let l:pos = a:start_pos
-  let l:p0 = CharPriority(a:dir, GetChar('.'))
-
-  while MoveCursor(a:dir)
-    let l:c = GetChar('.')
-    let l:p1 = CharPriority(a:dir, l:c)
-    if l:p1 == l:p0 && stridx("({[]})", l:c) < 0
-      let l:pos = getpos('.')
-      else
-        call setpos('.', pos)
-        break
-    endif
-  endwhile
-
-  return l:pos != a:start_pos
+function! PushVisualRange() abort
+  let s:visual_stack = s:visual_stack[:s:visual_stack_index] + [ [ getpos('v'), getpos('.') ] ]
+  let s:visual_stack_index += 1
 endfunction
 
-function! GrowVisualSelection(v_or_n, h_l_or_b) abort
-  let l:save_cursor = getpos(".")
+function! StartVisualExpr() abort
+  call InitVisualRangeStack()
 
-  if a:v_or_n == 'n'
-    let l:start_char = GetChar(".")
-    let l:start_pos  = l:save_cursor
-    let l:end_char   = l:start_char
-    let l:end_pos    = l:save_cursor
+  let l:c = GetChar('.')
+
+  let l:t = CharType(l:c)
+
+  if     l:t == 'word'
+    return 'viw'
+  elseif l:t == 'pair'
+    return 'v%'
   else
-    normal gv
-    let l:start_char = GetChar("'<")
-    let l:start_pos  = getpos( "'<")
-    let l:end_char   = GetChar("'>")
-    let l:end_pos    = getpos( "'>")
+    return 'viW'
+  endif
+
+endfunction
+
+function! ComparePositions(p0, p1) abort
+  if a:p0[1] < a:p1[1]
+    return -1
+  endif
+
+  if a:p0[1] > a:p1[1]
+    return 1
+  endif
+
+  if a:p0[2] < a:p1[2]
+    return -1
+  endif
+
+  if a:p0[2] > a:p1[2]
+    return  1
+  endif
+
+  return 0
+endfunction
+
+lua package.loaded.text_objects = nil; -- debug only
+lua require("text_objects")
+
+function! MapQuotesOnLine(type) abort
+  let l:pos = getpos('.')
+  let l:line = getline(l:pos[1])
+  let l:stack = []
+  let l:region = 0
+  for l:c in split(l:line, '\zs')
+  endfor
+endfunction
+
+function! GetTextObject(type) abort
+  if mode() == 'n'
     normal v
   endif
 
-  let l:h_priority = CharPriority('h', l:start_char)
-  let l:l_priority = CharPriority('l', l:end_char  )
+  let l:vpos = getpos('v')
+  let l:cpos = getpos('.')
 
-  let l:grew = 0
-
-  let l:try_grow_h = a:h_l_or_b != 'l'
-  let l:try_grow_l = a:h_l_or_b != 'h'
-
-  let l:grow_left  = 0
-  let l:grow_right = 0
-
-  " Expand to include all same-priority chars
-  if l:try_grow_h && Grow(l:start_pos, 'h')
-    let l:start_pos = getpos('.')
-    let l:grew = 1
-    let l:c = GetChar('.')
-    if stridx(")}]", l:c) >= 0
-      normal! %
-      let l:start_pos = getpos('.')
-    elseif stridx("({[", l:c) >= 0
-      normal! %
-      let l:end_pos = getpos('.')
-    endif
-  endif
-
-  if l:try_grow_l && Grow(l:end_pos, 'l')
-    let l:end_pos = getpos('.')
-    let l:grew = 1
-    let l:c = GetChar('.')
-    if stridx("({[", l:c) >= 0
-      normal! %
-      let l:end_pos = getpos('.')
-    elseif stridx(")}]", l:c) >= 0
-      normal! %
-      let l:start_pos = getpos('.')
-    endif
-  endif
-
-  " Expand requested end or end with higher priority char to include those chars
-  if !l:grew
-    let l:h_pri = -1
-    if l:try_grow_h
-        call setpos('.', l:start_pos)
-        if MoveCursor('h')
-            let l:h_pos = getpos('.')
-            let l:h_pri = CharPriority('h', GetChar('.'))
-        end
-    end
-
-    let l:l_pri = -1
-    if l:try_grow_l
-        call setpos('.', l:end_pos)
-        if MoveCursor('l')
-            let l:l_pos = getpos('.')
-            let l:l_pri = CharPriority('l', GetChar('.'))
-        end
-    end
-
-    if l:h_pri >= 0 || l:l_pri >= 0
-
-        if l:h_pri >= l:l_pri
-            call Grow(l:h_pos, 'h')
-            let l:start_pos = getpos('.')
-            let l:c = GetChar('.')
-            if stridx(")}]", l:c) >= 0
-              normal! %
-              let l:start_pos = getpos('.')
-            elseif stridx("({[", l:c) >= 0
-              normal! %
-              let l:end_pos = getpos('.')
-            endif
-        endif
-
-        if l:h_pri <= l:l_pri
-            call Grow(l:l_pos, 'l')
-            let l:end_pos = getpos('.')
-            let l:c = GetChar('.')
-            if stridx("({[", l:c) >= 0
-              normal! %
-              let l:end_pos = getpos('.')
-            elseif stridx(")}]", l:c) >= 0
-              normal! %
-               let l:start_pos = getpos('.')
-            endif
-        endif
-
-    endif
-
-  endif
-
-  call setpos('.', l:start_pos)
-  normal v
-  call setpos('.', l:end_pos)
-  if a:h_l_or_b == 'h'
+  let l:is_reversed = ComparePositions(l:vpos, l:cpos) > 0
+  if l:is_reversed
     normal o
-  end
+    let l:vpos = getpos('v')
+    let l:cpos = getpos('.')
+  endif
+
+  let l:is_one_line = l:vpos[1] == l:cpos[1]
+
+  if a:type == '"' || a:type == "'"
+      if !l:is_one_line
+        return []
+      endif
+
+      let l:m = MapQuotesOnLine(a:type)
+  endif
 
 endfunction
 
-function! SelectSyntaxRegion(i_or_a)
+function! GetVisualModeText() abort
+  let save_clipboard = &clipboard
+  set clipboard= " Avoid clobbering the selection and clipboard registers.
+  let save_reg = getreg('"')
+  let save_regmode = getregtype('"')
+  silent normal! ygv
+  let res = getreg('"')
+  call setreg('"', save_reg, save_regmode)
+  let &clipboard = save_clipboard
+  return res
+endfunction
 
+function! GrowVisual() abort
   normal gv
-  let l:save_cursor = getpos(".")
-  let l:v_start_pos = getpos("'<")
-  let l:v_end_pos   = getpos("'>")
-  normal v
 
-  " != l:v_end_pos instead of == l:v_start_pos: place cursor at end when
-  " visual selection is one char long.
-  let l:is_at_start = l:save_cursor != l:v_end_pos
+  if len(s:visual_stack) == 0
+    call PushVisualRange()
+  endif
 
-  let l:is_big_region = l:v_end_pos != l:v_start_pos
+  "echom "======================="
 
-  let l:grow_both_ends = a:i_or_a ==# 'a'
+  let l:vpos = getpos('v')
+  let l:cpos = getpos('.')
 
-  call setpos('.', l:v_start_pos)
-  if (l:is_big_region && l:is_at_start) || l:grow_both_ends
-    call MoveCursor('h')
-  end
-
-  call SyntaxMotion('h', '', 1)
-  let l:start_pos = getpos(".")
-
-  call setpos('.', l:v_end_pos)
-  " TODO: Also move the cursor if this call to SelectSyntaxRegion() isn't
-  " the first since entering a visual mode. This will need the VisualEnter
-  " autocmd event, when it arrives. Until then, simulating VisualEnter fully
-  " does not seem possible
-  if (l:is_big_region && !l:is_at_start) || l:grow_both_ends
-    call MoveCursor('l')
-  end
-
-  call SyntaxMotion('l', '', 1)
-  let l:end_pos = getpos(".")
-
-  call setpos('.', l:start_pos)
-  normal v
-  call setpos('.', l:end_pos)
-
-  if l:is_at_start
+  let l:is_reversed = ComparePositions(l:vpos, l:cpos) > 0
+  if l:is_reversed
     normal o
-  end
+    let l:vpos = getpos('v')
+    let l:cpos = getpos('.')
+  endif
 
+  "echom " =" join(l:vpos,':') join(l:cpos,':')
+
+  let l:vp = l:vpos
+  let l:cp = l:cpos
+
+  let l:found = 0
+
+  for l:o in [ 'i(', 'a(', 'i{', 'a{', 'i[', 'a[', 'i''', 'i"']
+    if l:o == 'i'''
+      call setpos(".", l:vp)
+      normal o
+      call setpos(".", l:cp)
+
+      let l:text = GetVisualModeText()
+      if match(l:text, '''') >= 0
+          continue
+      endif
+    endif
+
+    "echom " "
+    call setpos(".", l:vpos)
+    normal o
+    call setpos(".", l:cpos)
+
+    exe "normal " . l:o
+
+    let l:v = getpos("v")
+    let l:c = getpos(".")
+
+    "echom l:o . '?' join(l:v, ':') join(l:c, ':') ComparePositions(l:v, l:vpos) ComparePositions(l:c, l:cpos) ComparePositions(l:v, l:vp) ComparePositions(l:c, l:cp)
+    if    (
+        \      ComparePositions(l:v, l:vpos) < 0
+        \   || ComparePositions(l:c, l:cpos) > 0
+        \ )
+        \ && (
+        \    !l:found
+        \    || (
+        \         ComparePositions(l:v, l:vp) >  0
+        \      && ComparePositions(l:c, l:cp) <  0
+        \    )
+        \ )
+      let l:vp = l:v
+      let l:cp = l:c
+      let l:found = 1
+      "echom l:o . '=' join(l:vp, ':') join(l:cp, ':')
+    endif
+  endfor
+
+  if !l:found " Expand to line
+    if l:vp[2] > 1
+      let l:found = 1
+      let l:vp[2] = 1
+    endif
+    let l:cend = col("$")
+    if l:cp[2] < l:cend
+      let l:found = 1
+      let l:cp[2] = l:cend
+    endif
+  endif
+
+  call setpos(".", l:vp)
+  normal o
+  call setpos(".", l:cp)
+
+  if l:is_reversed
+    normal o
+  endif
+
+  if l:found
+    call PushVisualRange()
+  endif
+
+  "echom join(getpos("v"), ':') join(getpos("."), ':')
 endfunction
+
+function! ShrinkVisual() abort
+  normal gv
+  if s:visual_stack_index > 0
+    let s:visual_stack_index -= 1
+    call setpos(".", s:visual_stack[s:visual_stack_index][0])
+    normal o
+    call setpos(".", s:visual_stack[s:visual_stack_index][1])
+  end
+endfunction
+
+function! GrowVisualLeft() abort
+  normal gv
+
+  if len(s:visual_stack) == 0
+    call PushVisualRange()
+  endif
+
+  let l:v = getpos("v")
+  let l:c = getpos(".")
+  if ComparePositions(l:v, l:c) < 0
+    normal o
+  endif
+
+  normal b
+
+  call PushVisualRange()
+endfunction
+
+function! StartVisualGrowLeftExpr() abort
+  call InitVisualRangeStack()
+  return "vb"
+endfunction
+
+function! StartVisualGrowRightExpr() abort
+  call InitVisualRangeStack()
+  return "vw"
+endfunction
+
+function! GrowVisualRight() abort
+  normal gv
+
+  if len(s:visual_stack) == 0
+    call PushVisualRange()
+  endif
+
+  let l:v = getpos("v")
+  let l:c = getpos(".")
+  if ComparePositions(l:v, l:c) > 0
+    normal o
+  endif
+
+  normal w
+
+  call PushVisualRange()
+endfunction
+
+nnoremap <expr>   + StartVisualExpr()
+nnoremap <expr>   ( StartVisualGrowLeftExpr()
+nnoremap <expr>   ) StartVisualGrowRightExpr()
+
+vnoremap <silent> + :call GrowVisual()<CR>
+"vnoremap <silent> v :call GrowVisual()<CR>
+vnoremap <silent> _ :call ShrinkVisual()<CR>
+vnoremap <silent> ( :call GrowVisualLeft()<CR>
+vnoremap <silent> ) :call GrowVisualRight()<CR>
+
+nnoremap <expr>   <C-Up>    StartVisualExpr()
+nnoremap <expr>   <C-Left>  StartVisualGrowLeftExpr()
+nnoremap <expr>   <C-Right> StartVisualGrowRightExpr()
+vnoremap <silent> <C-Up>    :call GrowVisual()<CR>
+vnoremap <silent> <C-Down>  :call ShrinkVisual()<CR>
+vnoremap <silent> <C-Left>  :call GrowVisualLeft()<CR>
+vnoremap <silent> <C-Right> :call GrowVisualRight()<CR>
+
+nnoremap <expr>   <C-ScrollWheelUp>   StartVisualExpr()
+vnoremap <silent> <C-ScrollWheelUp>   :call GrowVisual()<CR>
+vnoremap <silent> <C-ScrollWheelDown> :call ShrinkVisual()<CR>
 
 " [a and ]a are under development and not yet right
 nnoremap <silent> ]a l:call SyntaxMotion('l', 'n', v:count)<CR>
@@ -898,16 +1417,100 @@ vnoremap <silent> ]a l:call SyntaxMotion('l', 'v', v:count)<CR>
 nnoremap <silent> [a h:call SyntaxMotion('h', 'n', v:count)<CR>
 vnoremap <silent> [a h:call SyntaxMotion('h', 'v', v:count)<CR>
 
-nnoremap <silent> +  :<c-u>call GrowVisualSelection('n','b')<CR>
-nnoremap <silent> (  :<c-u>call GrowVisualSelection('n','h')<CR>
-nnoremap <silent> )  :<c-u>call GrowVisualSelection('n','l')<CR>
-vnoremap <silent> +  :<c-u>call GrowVisualSelection('v','b')<CR>
-vnoremap <silent> (  :<c-u>call GrowVisualSelection('v','h')<CR>
-vnoremap <silent> )  :<c-u>call GrowVisualSelection('v','l')<CR>
 vnoremap <silent> ia :<c-u>call SelectSyntaxRegion('i')<CR>
 vnoremap <silent> aa :<c-u>call SelectSyntaxRegion('a')<CR>
 onoremap <silent> ia :normal via<CR>
 onoremap <silent> aa :normal vaa<CR>
+
+" submodes
+
+let g:submode_timeout = 0
+
+" Navigation axis ideas
+"     undo tree tips ("leaves")
+"     file history of current window (or buffer); requires tracking
+"     window growth
+"     window shrinkage
+"     window placement
+"
+"    [ name           [entry mappings     ]  [submode mappings  ], [replacements     ]
+"    [                [left,  right, addtl]  [left,    right    ], [left      right  ]
+let l:nav_axes = [
+    \[ 'changes',     ['gg;', 'gg,', 'ggc'], [';',     ',',     ], ['g;',    'g,'   ] ],
+    \[ 'jumps',       [              'ggj'], ['<C-o>', '<C-i>', ], ['<C-o>', '<C-i>'] ],
+    \[ 'undo',        [              'ggu'], ['u',     'r',     ], ['u',     '<C-r>'] ],
+    \[ 'undo_time',   ['gg-', 'gg+', 'ggU'], ['-',     '+',     ], ['g-',    'g+'   ] ],
+    \
+    \[ 'window',      [              'gw' ], [                  ], [                ] ],
+    \[ 'window',      [              'ggw'], ['',      '',      ], [                ],
+    \   ['H',           '<C-w>H'    ],
+    \   ['J',           '<C-w>J'    ],
+    \   ['K',           '<C-w>K'    ],
+    \   ['L',           '<C-w>L'    ],
+    \   ['R',           '<C-w>R'    ],
+    \   ['W',           '<C-w>W'    ],
+    \   ['b',           '<C-w>b'    ],
+    \   ['h', '<Left>', '<C-w>h'    ],
+    \   ['j', '<Down>', '<C-w>j'    ],
+    \   ['k', '<Up>',   '<C-w>k'    ],
+    \   ['l', '<Right>','<C-w>l'    ],
+    \   ['p',           '<C-w>p'    ],
+    \   ['n',           '<C-w>n'    ],
+    \   ['r',           '<C-w>r'    ],
+    \   ['s',           '<C-w>s'    ],
+    \   ['t',           '<C-w>t'    ],
+    \   ['v',           '<C-w>v'    ],
+    \   ['w',           '<C-w>w'    ],
+    \   ['x',           '<C-w>x'    ],
+    \   ['<',           '<C-w><'    ],
+    \   ['>',           '<C-w>>'    ],
+    \   ['+',           '<C-w>+'    ],
+    \   ['-',           '<C-w>-'    ],
+    \   ['<Bar>',       '<C-w><Bar>'],
+    \   ['_',           '<C-w>_'    ],
+    \   ['=',           '<C-w>='    ]
+    \],
+\]
+
+for l:axis in l:nav_axes
+    let l:name            = l:axis[0]
+    let l:entry_sequences = l:axis[1]
+    let l:lhs_sequences   = l:axis[2]
+    let l:rhs_sequences   = l:axis[3]
+
+    let l:i = 0
+    while i < len(l:entry_sequences)
+        if len(l:entry_sequences) == 1 || i >= len(l:entry_sequences) || i >= len(l:rhs_sequences)
+            call submode#enter_with(l:name, 'n', '', l:entry_sequences[i], '<Nop>')
+        else
+            call submode#enter_with(l:name, 'n', '', l:entry_sequences[i], l:rhs_sequences[i])
+        endif
+        let l:i = l:i + 1
+    endwhile
+
+    let l:i = 0
+    while i < len(l:lhs_sequences)
+        if len(l:lhs_sequences[i]) > 0
+            call submode#map(l:name, 'n', '', l:lhs_sequences[i], l:rhs_sequences[i % len(l:rhs_sequences)])
+        end
+        let l:i = l:i + 1
+    endwhile
+
+    if len(l:rhs_sequences) >= 2
+        call submode#map(l:name, 'n', '', 'h',       l:rhs_sequences[0])
+        call submode#map(l:name, 'n', '', '<Left>',  l:rhs_sequences[0])
+        call submode#map(l:name, 'n', '', 'l',       l:rhs_sequences[1])
+        call submode#map(l:name, 'n', '', '<Right>', l:rhs_sequences[1])
+    endif
+
+    for l:ms in l:axis[4:]
+        let l:rhs = l:ms[-1]
+        for l:lhs in l:ms[0:len(l:ms)-1]
+            call submode#map(l:name, 'n', '', l:lhs, l:rhs)
+        endfor
+    endfor
+
+endfor
 
 " :terminal navigation
 if has("nvim")
@@ -942,8 +1545,6 @@ if has("nvim")
                 set winhighlight=Normal:FocusedNormal,NormalNC:UnfocusedNormal,EndOfBuffer:UnfocusedEndOfBuffer
                 " echom "inactive" winnr() &winhighlight 'ft:'.&ft 'bt:'.&bt
             endif
-            syn off
-            syn on
         endfunction
 
         augroup inactive_win
@@ -964,3 +1565,5 @@ if !exists("g:VimEnter_Initialized") || g:VimEnter_Initialized
 end
 
 autocmd FileType perl :setlocal iskeyword-=:
+
+" lua require("plugins/vim-growmode")

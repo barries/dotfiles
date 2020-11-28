@@ -3,7 +3,7 @@
 " DEPENDENCIES:
 "   - ingo/err.vim autoload script
 "
-" Copyright: (C) 2010-2013 Ingo Karkat
+" Copyright: (C) 2010-2019 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
@@ -47,7 +47,7 @@ function! ingo#cmdrangeconverter#BufferToLineRange( cmd ) range
     endtry
 endfunction
 
-function! ingo#cmdrangeconverter#LineToBufferRange( cmd )
+function! ingo#cmdrangeconverter#LineToBufferRange( Action, ... )
 "******************************************************************************
 "* MOTIVATION:
 "   You want to invoke a command that defaults to the current line (e.g. :s) in
@@ -65,19 +65,19 @@ function! ingo#cmdrangeconverter#LineToBufferRange( cmd )
 "* EFFECTS / POSTCONDITIONS:
 "   None.
 "* INPUTS:
-"   a:cmd   Ex command which has a default range=.
+"   a:Action    Ex command which has a default range=. Or Funcref (to a
+"               :function-range function) that is invoked without any arguments
+"               once on the range.
+"   a:count     Optional [count], pass this when v:count has been clobbered.
 "* RETURN VALUES:
 "   True if successful; False when a Vim error or exception occurred.
 "   Get the error message via ingo#err#Get().
 "******************************************************************************
     call ingo#err#Clear()
     try
-	if v:count
-	    let l:range = (v:count == 1 ? '.' : '.,.+' . (v:count - 1))
-	else
-	    let l:range = '%'
-	endif
-	execute l:range . a:cmd
+	let l:range = call('ingo#cmdrange#FromCount', ['%'] + a:000)
+	let l:cmd = (type(a:Action) == type(function('tr')) ? 'call ' . ingo#funcref#ToString(a:Action) . '()' : a:Action)
+	execute l:range . l:cmd
 	return 1
     catch
 	call ingo#err#SetVimException()

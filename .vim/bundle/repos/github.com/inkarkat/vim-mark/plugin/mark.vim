@@ -1,7 +1,7 @@
 " Script Name: mark.vim
 " Description: Highlight several words in different colors simultaneously.
 "
-" Copyright:   (C) 2008-2018 Ingo Karkat
+" Copyright:   (C) 2008-2020 Ingo Karkat
 "              (C) 2005-2008 Yuheng Xie
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
@@ -9,15 +9,11 @@
 " Orig Author: Yuheng Xie <elephant@linux.net.cn>
 " Contributors:Luc Hermitte, Ingo Karkat
 "
-" Dependencies:
+" DEPENDENCIES:
 "	- Requires Vim 7.1 with "matchadd()", or Vim 7.2 or higher.
-"	- mark.vim autoload script
-"	- mark/palettes.vim autoload script for additional palettes
-"	- mark/cascade.vim autoload script for cascading search
-"	- ingo/err.vim autoload script
-"	- ingo/msg.vim autoload script
+"	- ingo-library.vim plugin
 "
-" Version:     3.0.0
+" Version:     3.1.1
 
 " Avoid installing twice or when in unsupported Vim version.
 if exists('g:loaded_mark') || (v:version == 701 && ! exists('*matchadd')) || (v:version < 701)
@@ -60,10 +56,27 @@ if ! exists('g:mwPalettes')
 	\	'extended': function('mark#palettes#Extended'),
 	\	'maximum': function('mark#palettes#Maximum')
 	\}
+	if has('gui_running')
+		call extend(g:mwPalettes, {
+		\	'soft': function('mark#palettes#Soft'),
+		\	'softer': function('mark#palettes#Softer'),
+		\})
+	endif
 endif
 
 if ! exists('g:mwDirectGroupJumpMappingNum')
 	let g:mwDirectGroupJumpMappingNum = 9
+endif
+
+if ! exists('g:mwExclusionPredicates')
+	let g:mwExclusionPredicates = (v:version == 702 && has('patch61') || v:version > 702 ? [function('mark#DefaultExclusionPredicate')] : [])
+endif
+
+if ! exists('g:mwMaxMatchPriority')
+	" Default the highest match priority to -10, so that we do not override the
+	" 'hlsearch' of 0, and still allow other custom highlightings to sneak in
+	" between.
+	let g:mwMaxMatchPriority = -10
 endif
 
 
@@ -110,6 +123,86 @@ highlight def link SearchSpecialSearchType MoreMsg
 
 
 
+"- marks persistence ----------------------------------------------------------
+
+if g:mwAutoLoadMarks
+	" As the viminfo is only processed after sourcing of the runtime files, the
+	" persistent global variables are not yet available here. Defer this until Vim
+	" startup has completed.
+	function! s:AutoLoadMarks()
+		if g:mwAutoLoadMarks && exists('g:MARK_MARKS') && ! empty(ingo#plugin#persistence#Load('MARK_MARKS', []))
+			if ! exists('g:MARK_ENABLED') || g:MARK_ENABLED
+				" There are persistent marks and they haven't been disabled; we need to
+				" show them right now.
+				call mark#LoadCommand(0)
+			else
+				" Though there are persistent marks, they have been disabled. We avoid
+				" sourcing the autoload script and its invasive autocmds right now;
+				" maybe the marks are never turned on. We just inform the autoload
+				" script that it should do this once it is sourced on-demand by a
+				" mark mapping or command.
+				let g:mwDoDeferredLoad = 1
+			endif
+		endif
+	endfunction
+
+	augroup MarkInitialization
+		autocmd!
+		" Note: Avoid triggering the autoload unless there actually are persistent
+		" marks. For that, we need to check that g:MARK_MARKS doesn't contain the
+		" empty list representation, and also :execute the :call.
+		autocmd VimEnter * call <SID>AutoLoadMarks()
+	augroup END
+endif
+
+
+
+"- commands -------------------------------------------------------------------
+
+let s:hasOtherArgumentAddressing = v:version == 801 && has('patch560') || v:version > 801
+
+if s:hasOtherArgumentAddressing
+	command! -bang -range=0 -addr=other -nargs=? -complete=customlist,mark#Complete Mark if <bang>0 | silent call mark#DoMark(<count>, '') | endif | if ! mark#SetMark(<count>, <f-args>)[0] | echoerr ingo#err#Get() | endif
+else
+	command! -bang -range=0             -nargs=? -complete=customlist,mark#Complete Mark if <bang>0 | silent call mark#DoMark(<count>, '') | endif | if ! mark#SetMark(<count>, <f-args>)[0] | echoerr ingo#err#Get() | endif
+endif
+command! -bar MarkClear call mark#ClearAll()
+command! -bar Marks call mark#List()
+
+command! -bar -nargs=? -complete=customlist,mark#MarksVariablesComplete MarkLoad if ! mark#LoadCommand(1, <f-args>) | echoerr ingo#err#Get() | endif
+command! -bar -nargs=? -complete=customlist,mark#MarksVariablesComplete MarkSave if ! mark#SaveCommand(<f-args>) | echoerr ingo#err#Get() | endif
+command! -bar -register MarkYankDefinitions         if ! mark#YankDefinitions(0, <q-reg>) | echoerr ingo#err#Get()| endif
+command! -bar -register MarkYankDefinitionsOneLiner if ! mark#YankDefinitions(1, <q-reg>) | echoerr ingo#err#Get()| endif
+function! s:SetPalette( paletteName )
+	if type(g:mwDefaultHighlightingPalette) == type([])
+		" Convert the directly defined list to a palette named "default".
+		let g:mwPalettes['default'] = g:mwDefaultHighlightingPalette
+		unlet! g:mwDefaultHighlightingPalette   " Avoid E706.
+	endif
+	let g:mwDefaultHighlightingPalette = a:paletteName
+
+	let l:palette = s:GetPalette()
+	if empty(l:palette)
+		return
+	endif
+
+	call mark#ReInit(s:DefineHighlightings(l:palette, 1))
+	call mark#UpdateScope()
+endfunction
+function! s:MarkPaletteComplete( ArgLead, CmdLine, CursorPos )
+	return sort(filter(keys(g:mwPalettes), 'v:val =~ ''\V\^'' . escape(a:ArgLead, "\\")'))
+endfunction
+command! -bar -nargs=1 -complete=customlist,<SID>MarkPaletteComplete MarkPalette call <SID>SetPalette(<q-args>)
+if s:hasOtherArgumentAddressing
+	command! -bar -bang -range=0 -addr=other -nargs=? MarkName if ! mark#SetName(<bang>0, <count>, <q-args>) | echoerr ingo#err#Get() | endif
+else
+	command! -bar -bang -range=0             -nargs=? MarkName if ! mark#SetName(<bang>0, <count>, <q-args>) | echoerr ingo#err#Get() | endif
+endif
+
+unlet s:hasOtherArgumentAddressing
+
+
+
 "- mappings -------------------------------------------------------------------
 
 nnoremap <silent> <Plug>MarkSet               :<C-u>if ! mark#MarkCurrentWord(v:count)<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>endif<CR>
@@ -117,7 +210,7 @@ vnoremap <silent> <Plug>MarkSet               :<C-u>if ! mark#DoMark(v:count, ma
 vnoremap <silent> <Plug>MarkIWhiteSet         :<C-u>if ! mark#DoMark(v:count, mark#GetVisualSelectionAsLiteralWhitespaceIndifferentPattern())[0]<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>endif<CR>
 nnoremap <silent> <Plug>MarkRegex             :<C-u>if ! mark#MarkRegex(v:count, '')<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>
 vnoremap <silent> <Plug>MarkRegex             :<C-u>if ! mark#MarkRegex(v:count, mark#GetVisualSelectionAsRegexp())<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>
-nnoremap <silent> <Plug>MarkClear             :<C-u>if ! mark#DoMark(v:count, (v:count ? '' : mark#CurrentMark()[0]))[0]<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>
+nnoremap <silent> <Plug>MarkClear             :<C-u>if ! mark#Clear(v:count)<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>
 nnoremap <silent> <Plug>MarkAllClear          :<C-u>call mark#ClearAll()<CR>
 nnoremap <silent> <Plug>MarkConfirmAllClear   :<C-u>if confirm('Really delete all marks? This cannot be undone.', "&Yes\n&No") == 1<Bar>call mark#ClearAll()<Bar>endif<CR>
 nnoremap <silent> <Plug>MarkToggle            :<C-u>call mark#Toggle()<CR>
@@ -145,6 +238,23 @@ nnoremap <silent> <Plug>MarkSearchCascadeStartNoStop    :<C-u>if ! mark#cascade#
 nnoremap <silent> <Plug>MarkSearchCascadeNextNoStop     :<C-u>if ! mark#cascade#Next(v:count1, 0, 0)<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>
 nnoremap <silent> <Plug>MarkSearchCascadePrevNoStop     :<C-u>if ! mark#cascade#Next(v:count1, 0, 1)<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>
 
+function! s:MakeDirectGroupMappings( isDefineDefaultMappings )
+	for l:cnt in range(1, g:mwDirectGroupJumpMappingNum)
+		for [l:isBackward, l:direction, l:keyModifier] in [[0, 'Next', ''], [1, 'Prev', 'C-']]
+			let l:plugMappingName = printf('<Plug>MarkSearchGroup%d%s', l:cnt, l:direction)
+			execute printf('nnoremap <silent> %s :<C-u>if ! mark#SearchGroupMark(%d, v:count1, %d, 1)<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>', l:plugMappingName, l:cnt, l:isBackward)
+			if a:isDefineDefaultMappings && ! hasmapto(l:plugMappingName, 'n')
+				execute printf('nmap <%sk%d> %s', l:keyModifier, l:cnt, l:plugMappingName)
+			endif
+		endfor
+	endfor
+endfunction
+call s:MakeDirectGroupMappings(! exists('g:mw_no_mappings'))
+delfunction s:MakeDirectGroupMappings
+
+if exists('g:mw_no_mappings')
+	finish
+endif
 
 if !hasmapto('<Plug>MarkSet', 'n')
 	nmap <unique> <Leader>m <Plug>MarkSet
@@ -192,88 +302,6 @@ endif
 " No default mapping for <Plug>MarkSearchGroupPrev
 " No default mapping for <Plug>MarkSearchUsedGroupNext
 " No default mapping for <Plug>MarkSearchUsedGroupPrev
-
-function! s:MakeDirectGroupMappings()
-	for l:cnt in range(1, g:mwDirectGroupJumpMappingNum)
-		for [l:isBackward, l:direction, l:keyModifier] in [[0, 'Next', ''], [1, 'Prev', 'C-']]
-			let l:plugMappingName = printf('<Plug>MarkSearchGroup%d%s', l:cnt, l:direction)
-			execute printf('nnoremap <silent> %s :<C-u>if ! mark#SearchGroupMark(%d, v:count1, %d, 1)<Bar>execute "normal! \<lt>C-\>\<lt>C-n>\<lt>Esc>"<Bar>echoerr ingo#err#Get()<Bar>endif<CR>', l:plugMappingName, l:cnt, l:isBackward)
-			if ! hasmapto(l:plugMappingName, 'n')
-				execute printf('nmap <%sk%d> %s', l:keyModifier, l:cnt, l:plugMappingName)
-			endif
-		endfor
-	endfor
-endfunction
-call s:MakeDirectGroupMappings()
-delfunction s:MakeDirectGroupMappings
-
-
-
-"- commands -------------------------------------------------------------------
-
-command! -bang -range=0 -nargs=? -complete=customlist,mark#Complete Mark if <bang>0 | silent call mark#DoMark(<count>, '') | endif | if ! mark#SetMark(<count>, <f-args>)[0] | echoerr ingo#err#Get() | endif
-command! -bar MarkClear call mark#ClearAll()
-command! -bar Marks call mark#List()
-
-command! -bar -nargs=? -complete=customlist,mark#MarksVariablesComplete MarkLoad if ! mark#LoadCommand(1, <f-args>) | echoerr ingo#err#Get() | endif
-command! -bar -nargs=? -complete=customlist,mark#MarksVariablesComplete MarkSave if ! mark#SaveCommand(<f-args>) | echoerr ingo#err#Get() | endif
-command! -bar -register MarkYankDefinitions         if ! mark#YankDefinitions(0, <q-reg>) | echoerr 'No marks defined' | endif
-command! -bar -register MarkYankDefinitionsOneLiner if ! mark#YankDefinitions(1, <q-reg>) | echoerr 'No marks defined' | endif
-function! s:SetPalette( paletteName )
-	if type(g:mwDefaultHighlightingPalette) == type([])
-		" Convert the directly defined list to a palette named "default".
-		let g:mwPalettes['default'] = g:mwDefaultHighlightingPalette
-		unlet! g:mwDefaultHighlightingPalette   " Avoid E706.
-	endif
-	let g:mwDefaultHighlightingPalette = a:paletteName
-
-	let l:palette = s:GetPalette()
-	if empty(l:palette)
-		return
-	endif
-
-	call mark#ReInit(s:DefineHighlightings(l:palette, 1))
-	call mark#UpdateScope()
-endfunction
-function! s:MarkPaletteComplete( ArgLead, CmdLine, CursorPos )
-	return sort(filter(keys(g:mwPalettes), 'v:val =~ ''\V\^'' . escape(a:ArgLead, "\\")'))
-endfunction
-command! -bar -nargs=1 -complete=customlist,<SID>MarkPaletteComplete MarkPalette call <SID>SetPalette(<q-args>)
-command! -bar -bang -range=0 -nargs=? MarkName if ! mark#SetName(<bang>0, <count>, <q-args>) | echoerr ingo#err#Get() | endif
-
-
-
-"- marks persistence ----------------------------------------------------------
-
-if g:mwAutoLoadMarks
-	" As the viminfo is only processed after sourcing of the runtime files, the
-	" persistent global variables are not yet available here. Defer this until Vim
-	" startup has completed.
-	function! s:AutoLoadMarks()
-		if g:mwAutoLoadMarks && exists('g:MARK_MARKS') && g:MARK_MARKS !=# '[]'
-			if ! exists('g:MARK_ENABLED') || g:MARK_ENABLED
-				" There are persistent marks and they haven't been disabled; we need to
-				" show them right now.
-				call mark#LoadCommand(0)
-			else
-				" Though there are persistent marks, they have been disabled. We avoid
-				" sourcing the autoload script and its invasive autocmds right now;
-				" maybe the marks are never turned on. We just inform the autoload
-				" script that it should do this once it is sourced on-demand by a
-				" mark mapping or command.
-				let g:mwDoDeferredLoad = 1
-			endif
-		endif
-	endfunction
-
-	augroup MarkInitialization
-		autocmd!
-		" Note: Avoid triggering the autoload unless there actually are persistent
-		" marks. For that, we need to check that g:MARK_MARKS doesn't contain the
-		" empty list representation, and also :execute the :call.
-		autocmd VimEnter * call <SID>AutoLoadMarks()
-	augroup END
-endif
 
 let &cpo = s:save_cpo
 unlet s:save_cpo

@@ -5,26 +5,26 @@
 "   - ingo/regexp/virtcols.vim autoload script
 "   - ingo/str/list.vim autoload script
 "
-" Copyright: (C) 2013-2018 Ingo Karkat
+" Copyright: (C) 2013-2020 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
-"
-" REVISION	DATE		REMARKS
-"   1.027.007	30-Sep-2016	Add ingo#str#trd().
-"   1.025.006	30-Apr-2015	Add ingo#str#Contains().
-"   1.024.005	01-Apr-2015	Add ingo#str#GetVirtCols().
-"   1.019.004	21-May-2014	Allow optional a:ignorecase argument for
-"				ingo#str#StartsWith() and ingo#str#EndsWith().
-"				Add ingo#str#Equals() for when it's convenient
-"				to pass in the a:ignorecase flag. This avoids
-"				coding the conditional between ==# and ==?
-"				yourself.
-"   1.016.003	23-Dec-2013	Add ingo#str#StartsWith() and
-"				ingo#str#EndsWith().
-"   1.011.002	26-Jul-2013	Add ingo#str#Reverse().
-"   1.009.001	19-Jun-2013	file creation
 
+function! ingo#str#TrimTrailing( string )
+"******************************************************************************
+"* PURPOSE:
+"   Remove trailing whitespace from a:string.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:string    Text.
+"* RETURN VALUES:
+"   a:string with trailing whitespace removed.
+"******************************************************************************
+    return substitute(a:string, '\_s\+$', '', '')
+endfunction
 function! ingo#str#Trim( string )
 "******************************************************************************
 "* PURPOSE:
@@ -39,6 +39,25 @@ function! ingo#str#Trim( string )
 "   a:string with leading and trailing whitespace removed.
 "******************************************************************************
     return substitute(a:string, '^\_s*\(.\{-}\)\_s*$', '\1', '')
+endfunction
+function! ingo#str#TrimPattern( string, pattern, ... )
+"******************************************************************************
+"* PURPOSE:
+"   Remove leading and trailing matches of a:pattern from a:string.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:string    Text.
+"   a:pattern   Regular expression. Must not use capture groups itself.
+"   a:pattern2  Regular expression. If given, a:pattern is only used for the
+"               leading matches, and a:pattern2 is used for trailing matches.
+"               Must not use capture groups itself.
+"* RETURN VALUES:
+"   a:string with leading and trailing matches of a:pattern removed.
+"******************************************************************************
+    return substitute(a:string, '^\%(' . a:pattern . '\)*\(.\{-}\)\%(' . (a:0 ? a:1 : a:pattern) . '\)*$', '\1', '')
 endfunction
 
 function! ingo#str#Reverse( string )
@@ -120,6 +139,44 @@ function! ingo#str#trd( src, fromstr )
 "   Copy of a:src that has all instances of the characters in a:fromstr removed.
 "******************************************************************************
     return substitute(a:src, '\C' . ingo#regexp#collection#LiteralToRegexp(a:fromstr), '', 'g')
+endfunction
+
+function! ingo#str#trcd( src, fromstr )
+"******************************************************************************
+"* PURPOSE:
+"   Keep only characters in a:fromstr in a copy of a:src. Like tr -cd, but the
+"   built-in tr() doesn't support this.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:src   Source string.
+"   a:fromstr   Characters that will each be kept in a:src.
+"* RETURN VALUES:
+"   Copy of a:src that has all instances of the complement of the characters in
+"   a:fromstr removed.
+"******************************************************************************
+    return substitute(a:src, '\C[^' . ingo#regexp#collection#LiteralToRegexp(a:fromstr)[1:], '', 'g')
+endfunction
+
+function! ingo#str#Wrap( string, commonOrPrefix, ... ) abort
+"******************************************************************************
+"* PURPOSE:
+"   Surround a:string with a prefix + suffix or a common string.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:string    Text.
+"   a:commonOrPrefix    Text to be put in front of a:string, and unless a:suffix
+"                       is also given, also at the back.
+"   a:suffix            Optional different text to be put at the back.
+"* RETURN VALUES:
+"   a:string with prefix and suffix text.
+"******************************************************************************
+    return a:commonOrPrefix . a:string . (a:0 ? a:1 : a:commonOrPrefix)
 endfunction
 
 " vim: set ts=8 sts=4 sw=4 noexpandtab ff=unix fdm=syntax :

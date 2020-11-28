@@ -1,23 +1,17 @@
 " Script Name: mark.vim
 " Description: Highlight several words in different colors simultaneously.
 "
-" Copyright:   (C) 2008-2018 Ingo Karkat
+" Copyright:   (C) 2008-2020 Ingo Karkat
 "              (C) 2005-2008 Yuheng Xie
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:  Ingo Karkat <ingo@karkat.de>
 "
 " DEPENDENCIES:
-"   - ingo/cmdargs/pattern.vim autoload script
-"   - ingo/err.vim autoload script
-"   - ingo/msg.vim autoload script
-"   - ingo/regexp/split.vim autoload script
-"	- ingo/cmdargs/pattern.vim autoload script
-"	- ingo/err.vim autoload script
-"	- ingo/msg.vim autoload script
-"	- SearchSpecial.vim autoload script (optional, for improved search messages).
+"   - ingo-library.vim plugin
+"   - SearchSpecial.vim plugin (optional)
 "
-" Version:     3.0.1
+" Version:     3.1.1
 
 "- functions ------------------------------------------------------------------
 
@@ -109,7 +103,7 @@ function! mark#MarkRegex( groupNum, regexpPreset )
 	endif
 
 	redraw " This is necessary when the user is queried for the mark group.
-	return mark#DoMarkAndSetCurrent(a:groupNum, l:regexp)[0]
+	return mark#DoMarkAndSetCurrent(a:groupNum, ingo#regexp#magic#Normalize(l:regexp))[0]
 endfunction
 
 function! s:Cycle( ... )
@@ -153,6 +147,10 @@ function! mark#NextUsedGroupIndex( isBackward, isWrapAround, startIndex, count )
 	return -1
 endfunction
 
+function! mark#DefaultExclusionPredicate()
+	return (exists('b:nomarks') && b:nomarks) || (exists('w:nomarks') && w:nomarks) || (exists('t:nomarks') && t:nomarks)
+endfunction
+
 " Set match / clear matches in the current window.
 function! s:MarkMatch( indices, expr )
 	if ! exists('w:mwMatch')
@@ -188,48 +186,47 @@ function! s:MarkMatch( indices, expr )
 		let l:expr = (s:IsIgnoreCase(a:expr) ? '\c' : '') . a:expr
 
 		" To avoid an arbitrary ordering of highlightings, we assign a different
-		" priority based on the highlight group, and ensure that the highest
-		" priority is -10, so that we do not override the 'hlsearch' of 0, and still
-		" allow other custom highlightings to sneak in between.
-		let l:priority = -10 - s:markNum + 1 + l:index
+		" priority based on the highlight group.
+		let l:priority = g:mwMaxMatchPriority - s:markNum + 1 + l:index
 
 		let w:mwMatch[l:index] = matchadd('MarkWord' . (l:index + 1), l:expr, l:priority)
 	endif
 endfunction
 " Initialize mark colors in a (new) window.
-function! mark#UpdateMark()
-	let i = 0
-	while i < s:markNum
-		if ! s:enabled || empty(s:pattern[i])
-			call s:MarkMatch([i], '')
-		else
-			call s:MarkMatch([i], s:pattern[i])
+function! mark#UpdateMark( ... )
+	for l:Predicate in g:mwExclusionPredicates
+		if ingo#actions#EvaluateOrFunc(l:Predicate)
+			" The window may have had marks applied previously. Clear any
+			" existing matches.
+			call s:MarkMatch(range(s:markNum), '')
+
+			return
 		endif
-		let i += 1
-	endwhile
-endfunction
-" Set / clear matches in all windows.
-function! s:MarkScope( indices, expr )
-	" By entering a window, its height is potentially increased from 0 to 1 (the
-	" minimum for the current window). To avoid any modification, save the window
-	" sizes and restore them after visiting all windows.
-	let l:originalWindowLayout = winrestcmd()
-		let l:originalWinNr = winnr()
-		let l:previousWinNr = winnr('#') ? winnr('#') : 1
-			noautocmd windo call s:MarkMatch(a:indices, a:expr)
-		noautocmd execute l:previousWinNr . 'wincmd w'
-		noautocmd execute l:originalWinNr . 'wincmd w'
-	silent! execute l:originalWindowLayout
+	endfor
+
+	if a:0
+		call call('s:MarkMatch', a:000)
+	else
+		let i = 0
+		while i < s:markNum
+			if ! s:enabled || empty(s:pattern[i])
+				call s:MarkMatch([i], '')
+			else
+				call s:MarkMatch([i], s:pattern[i])
+			endif
+			let i += 1
+		endwhile
+	endif
 endfunction
 " Update matches in all windows.
-function! mark#UpdateScope()
+function! mark#UpdateScope( ... )
 	" By entering a window, its height is potentially increased from 0 to 1 (the
 	" minimum for the current window). To avoid any modification, save the window
 	" sizes and restore them after visiting all windows.
 	let l:originalWindowLayout = winrestcmd()
 		let l:originalWinNr = winnr()
 		let l:previousWinNr = winnr('#') ? winnr('#') : 1
-			noautocmd windo call mark#UpdateMark()
+			noautocmd keepjumps windo call call('mark#UpdateMark', a:000)
 		noautocmd execute l:previousWinNr . 'wincmd w'
 		noautocmd execute l:originalWinNr . 'wincmd w'
 	silent! execute l:originalWindowLayout
@@ -253,7 +250,7 @@ function! s:EnableAndMarkScope( indices, expr )
 	if s:enabled
 		" Marks are already enabled, we just need to push the changes to all
 		" windows.
-		call s:MarkScope(a:indices, a:expr)
+		call mark#UpdateScope(a:indices, a:expr)
 	else
 		call s:MarkEnable(1)
 	endif
@@ -275,6 +272,18 @@ endfunction
 
 
 " Mark or unmark a regular expression.
+function! mark#Clear( groupNum )
+	if a:groupNum > 0
+		return mark#DoMark(a:groupNum, '')[0]
+	else
+		let l:markText = mark#CurrentMark()[0]
+		if empty(l:markText)
+			return mark#DoMark(a:groupNum)[0]
+		else
+			return mark#DoMark(a:groupNum, l:markText)[0]
+		endif
+	endif
+endfunction
 function! s:SetPattern( index, pattern )
 	let s:pattern[a:index] = a:pattern
 
@@ -300,7 +309,7 @@ function! mark#ClearAll()
 	" refresh, as we do the update ourselves.
 	call s:MarkEnable(0, 0)
 
-	call s:MarkScope(l:indices, '')
+	call mark#UpdateScope(l:indices, '')
 
 	if len(indices) > 0
 		echo 'Cleared all' len(indices) 'marks'
@@ -416,10 +425,9 @@ function! mark#DoMark( groupNum, ... )
 		" by the passed highlight group number.
 		let existingPattern = s:pattern[l:groupNum - 1]
 		if ! empty(existingPattern)
-			" Split only on \|, but not on \\|.
 			let alternatives = s:SplitIntoAlternatives(existingPattern)
 			if index(alternatives, regexp) == -1
-				let regexp = existingPattern . '\|' . regexp
+				let regexp = join(ingo#regexp#split#AddPatternByProjectedMatchLength(alternatives, regexp), '\|')
 			else
 				let regexp = join(filter(alternatives, 'v:val !=# regexp'), '\|')
 				if empty(regexp)
@@ -462,21 +470,12 @@ function! mark#DoMark( groupNum, ... )
 	call s:EchoMark(i + 1, regexp)
 	return [1, i + 1]
 endfunction
-" To avoid accepting an invalid regular expression (e.g. "\(blah") and then
-" causing ugly errors on every mark update, check the patterns passed by the
-" user for validity. (We assume that the expressions generated by the plugin
-" itself from literal text are all valid.)
-function! s:IsRegexpValid( expr )
-	try
-		call match('', a:expr)
-		return 1
-	catch /^Vim\%((\a\+)\)\=:/
-		call ingo#err#SetVimException()
-		return 0
-	endtry
-endfunction
 function! mark#DoMarkAndSetCurrent( groupNum, ... )
-	if a:0 && ! s:IsRegexpValid(a:1)
+	" To avoid accepting an invalid regular expression (e.g. "\(blah") and then
+	" causing ugly errors on every mark update, check the patterns passed by the
+	" user for validity. (We assume that the expressions generated by the plugin
+	" itself from literal text are all valid.)
+	if a:0 && ! ingo#regexp#IsValid(a:1)
 		return [0, 0]
 	endif
 
@@ -498,6 +497,7 @@ function! mark#SetMark( groupNum, ... )
 	endif
 	if a:0
 		let [l:pattern, l:nameArgument] = ingo#cmdargs#pattern#ParseUnescapedWithLiteralWholeWord(a:1, '\(\s\+as\%(\s\+\(.\{-}\)\)\?\)\?\s*')
+		let l:pattern = ingo#regexp#magic#Normalize(l:pattern)  " We'd strictly only have to do this for /{pattern}/, not for whole word(s), but as the latter doesn't contain magicness atoms, it doesn't hurt, and with this we don't need to explicitly distinguish between the two cases.
 		if ! empty(l:nameArgument)
 			let l:name = substitute(l:nameArgument, '^\s\+as\s*', '', '')
 			return mark#DoMarkAndSetCurrent(a:groupNum, l:pattern, l:name)
@@ -511,11 +511,7 @@ endfunction
 
 " Return [mark text, mark start position, mark index] of the mark under the
 " cursor (or ['', [], -1] if there is no mark).
-" The mark can include the trailing newline character that concludes the line,
-" but marks that span multiple lines are not supported.
 function! mark#CurrentMark()
-	let line = getline('.') . "\n"
-
 	" Highlighting groups with higher numbers take precedence over lower numbers,
 	" and therefore its marks appear "above" other marks. To retrieve the visible
 	" mark in case of overlapping marks, we need to check from highest to lowest
@@ -523,20 +519,12 @@ function! mark#CurrentMark()
 	let i = s:markNum - 1
 	while i >= 0
 		if ! empty(s:pattern[i])
-			let matchPattern = (s:IsIgnoreCase(s:pattern[i]) ? '\c' : '\C') . s:pattern[i]
-			" Note: col() is 1-based, all other indexes zero-based!
-			let start = 0
-			while start >= 0 && start < strlen(line) && start < col('.')
-				let b = match(line, matchPattern, start)
-				let e = matchend(line, matchPattern, start)
-				if b < col('.') && col('.') <= e
-					return [s:pattern[i], [line('.'), (b + 1)], i]
-				endif
-				if b == e
-					break
-				endif
-				let start = e
-			endwhile
+			let l:matchPattern = (s:IsIgnoreCase(s:pattern[i]) ? '\c' : '\C') . s:pattern[i]
+
+			let [l:startPosition, l:endPosition] = ingo#area#frompattern#GetCurrent(l:matchPattern, {'firstLnum': 1, 'lastLnum': line('$')})
+			if l:startPosition != [0, 0]
+				return [s:pattern[i], l:startPosition, i]
+			endif
 		endif
 		let i -= 1
 	endwhile
@@ -839,47 +827,37 @@ endfunction
 function! mark#MarksVariablesComplete( ArgLead, CmdLine, CursorPos )
 	return sort(map(filter(keys(g:), 'v:val !~# "^MARK_\\%(MARKS\\|ENABLED\\)$" && v:val =~# "\\V\\^MARK_' . (empty(a:ArgLead) ? '\\S' : escape(a:ArgLead, '\')) . '"'), 'v:val[5:]'))
 endfunction
-function! s:HasVariablePersistence()
-	return (index(split(&viminfo, ','), '!') != -1)
+function! s:GetMarksVariable( ... )
+	return printf('MARK_%s', (a:0 ? a:1 : 'MARKS'))
 endfunction
 
 " :MarkLoad command.
 function! mark#LoadCommand( isShowMessages, ... )
-	if a:0
-		let l:marksVariable = printf('g:MARK_%s', a:1)
-		if exists(l:marksVariable)
-			let l:marks = eval(l:marksVariable)
-			let l:isEnabled = 1
-		else
-			call ingo#err#Set('No marks stored under ' . l:marksVariable . (s:HasVariablePersistence() || a:1 !~# '^\u\+$' ? '' : ", and persistence not configured via ! flag in 'viminfo'"))
-			return 0
-		endif
-	else
-		if exists('g:MARK_MARKS')
-			let l:marks = g:MARK_MARKS
-			let l:isEnabled = (exists('g:MARK_ENABLED') ? g:MARK_ENABLED : 1)
-		else
-			call ingo#err#Set('No persistent marks found' . (s:HasVariablePersistence() ? '' : ", and persistence not configured via ! flag in 'viminfo'"))
-			return 0
-		endif
-	endif
-
 	try
-		" Persistent global variables cannot be of type List, so we actually store
-		" the string representation, and eval() it back to a List.
-		execute printf('let l:loadedMarkNum = mark#Load(%s, %d)', l:marks, l:isEnabled)
+		let l:marksVariable = call('s:GetMarksVariable', a:000)
+		let l:isEnabled = (a:0 ? exists('g:' . l:marksVariable) : (exists('g:MARK_ENABLED') ? g:MARK_ENABLED : 1))
+
+		let l:marks = ingo#plugin#persistence#Load(l:marksVariable, [])
+		if empty(l:marks)
+			call ingo#err#Set('No marks stored under ' . l:marksVariable . (ingo#plugin#persistence#CanPersist(l:marksVariable) ? '' : ", and persistence not configured via ! flag in 'viminfo'"))
+			return 0
+		endif
+
+		let l:loadedMarkNum = mark#Load(l:marks, l:isEnabled)
+
 		if a:isShowMessages
 			if l:loadedMarkNum == 0
-				echomsg 'No persistent marks defined' . (exists('l:marksVariable') ? ' in ' . l:marksVariable : '')
+				echomsg 'No persistent marks defined in ' . l:marksVariable
 			else
 				echomsg printf('Loaded %d mark%s', l:loadedMarkNum, (l:loadedMarkNum == 1 ? '' : 's')) . (s:enabled ? '' : '; marks currently disabled')
 			endif
 		endif
+
 		return 1
-	catch /^Vim\%((\a\+)\)\=:/
-		if exists('l:marksVariable')
+	catch /^Load:/
+		if a:0
 			call ingo#err#Set(printf('Corrupted persistent mark info in %s', l:marksVariable))
-			execute 'unlet!' l:marksVariable
+			execute 'unlet! g:' . l:marksVariable
 		else
 			call ingo#err#Set('Corrupted persistent mark info in g:MARK_MARKS and g:MARK_ENABLED')
 			unlet! g:MARK_MARKS
@@ -893,29 +871,20 @@ endfunction
 function! s:SavePattern( ... )
 	let l:savedMarks = mark#ToList()
 
-	if a:0
-		try
-			if empty(l:savedMarks)
-				unlet! g:MARK_{a:1}
-			else
-				let g:MARK_{a:1} = string(l:savedMarks)
-			endif
-		catch /^Vim\%((\a\+)\)\=:/
-			call ingo#err#SetVimException()
-			return 0
-		endtry
-	else
-		let g:MARK_MARKS = string(l:savedMarks)
+	let l:marksVariable = call('s:GetMarksVariable', a:000)
+	call ingo#plugin#persistence#Store(l:marksVariable, l:savedMarks)
+	if ! a:0
 		let g:MARK_ENABLED = s:enabled
 	endif
+
 	return (empty(l:savedMarks) ? 2 : 1)
 endfunction
 function! mark#SaveCommand( ... )
-	if ! s:HasVariablePersistence()
+	if ! ingo#plugin#persistence#CanPersist()
 		if ! a:0
 			call ingo#err#Set("Cannot persist marks, need ! flag in 'viminfo': :set viminfo+=!")
 			return 0
-		elseif a:1 =~# '^\u\+$'
+		elseif a:1 =~# '^\L\+$'
 			call ingo#msg#WarningMsg("Cannot persist marks, need ! flag in 'viminfo': :set viminfo+=!")
 		endif
 	endif
@@ -928,10 +897,10 @@ function! mark#SaveCommand( ... )
 endfunction
 
 " :MarkYankDefinitions and :MarkYankDefinitionsOneLiner commands.
-function! mark#YankDefinitions( isOneLiner, register )
+function! mark#GetDefinitionCommands( isOneLiner )
 	let l:marks = mark#ToList()
 	if empty(l:marks)
-		return 0
+		return []
 	endif
 
 	let l:commands = []
@@ -942,10 +911,16 @@ function! mark#YankDefinitions( isOneLiner, register )
 		endif
 	endfor
 
-	let l:command = (a:isOneLiner ? join(map(l:commands, '"exe " . string(v:val)'), ' | ') : join(l:commands, "\n"))
-	call setreg(a:register, l:command)
+	return (a:isOneLiner ? [join(map(l:commands, '"exe " . string(v:val)'), ' | ')] : l:commands)
+endfunction
+function! mark#YankDefinitions( isOneLiner, register )
+	let l:commands = mark#GetDefinitionCommands(a:isOneLiner)
+	if empty(l:commands)
+		call ingo#err#Set('No marks defined')
+		return 0
+	endif
 
-	return 1
+	return ! setreg(a:register, join(l:commands, "\n"))
 endfunction
 
 " :MarkName command.
@@ -1118,6 +1093,7 @@ endfunction
 
 augroup Mark
 	autocmd!
+	autocmd BufWinEnter * call mark#UpdateMark()
 	autocmd WinEnter * if ! exists('w:mwMatch') | call mark#UpdateMark() | endif
 	autocmd TabEnter * call mark#UpdateScope()
 augroup END

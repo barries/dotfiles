@@ -44,16 +44,16 @@ function! dein#autoload#_source(...) abort
 
     if !has('vim_starting')
       let augroup = get(plugin, 'augroup', plugin.normalized_name)
-      if exists('#'.augroup.'#VimEnter')
-        execute 'doautocmd' augroup 'VimEnter'
-      endif
+      let events = ['VimEnter', 'BufRead', 'BufEnter',
+            \ 'BufWinEnter', 'WinEnter']
       if has('gui_running') && &term ==# 'builtin_gui'
-            \ && exists('#'.augroup.'#GUIEnter')
-        execute 'doautocmd' augroup 'GUIEnter'
+        call add(events, 'GUIEnter')
       endif
-      if exists('#'.augroup.'#BufRead')
-        execute 'doautocmd' augroup 'BufRead'
-      endif
+      for event in events
+        if exists('#'.augroup.'#'.event)
+          silent execute 'doautocmd' augroup event
+        endif
+      endfor
     endif
   endfor
 
@@ -64,7 +64,7 @@ function! dein#autoload#_source(...) abort
     call s:reset_ftplugin()
   endif
 
-  if is_reset || filetype_before !=# filetype_after
+  if (is_reset || filetype_before !=# filetype_after) && &filetype !=# ''
     " Recall FileType autocmd
     let &filetype = &filetype
   endif
@@ -116,18 +116,22 @@ function! s:source_events(event, plugins) abort
     return
   endif
 
+  let prev_autocmd = execute('autocmd ' . a:event)
+
   call dein#autoload#_source(a:plugins)
+
+  let new_autocmd = execute('autocmd ' . a:event)
 
   if a:event ==# 'InsertCharPre'
     " Queue this key again
     call feedkeys(v:char)
     let v:char = ''
   else
-    if a:event ==# 'BufNew'
+    if exists('#BufReadCmd') && a:event ==# 'BufNew'
       " For BufReadCmd plugins
-      doautocmd <nomodeline> BufReadCmd
+      silent doautocmd <nomodeline> BufReadCmd
     endif
-    if exists('#' . a:event)
+    if exists('#' . a:event) && prev_autocmd !=# new_autocmd
       execute 'doautocmd <nomodeline>' a:event
     elseif exists('#User#' . a:event)
       execute 'doautocmd <nomodeline> User' a:event
@@ -292,6 +296,16 @@ function! s:source_plugin(rtps, index, plugin, sourced) abort
     if isdirectory(a:plugin.rtp.'/after')
       call dein#util#_add_after(a:rtps, a:plugin.rtp.'/after')
     endif
+  endif
+
+  if get(g:, 'dein#lazy_rplugins', v:false) && !g:dein#_loaded_rplugins
+        \ && isdirectory(a:plugin.rtp.'/rplugin')
+    " Enable remote plugin
+    unlet! g:loaded_remote_plugins
+
+    runtime! plugin/rplugin.vim
+
+    let g:dein#_loaded_rplugins = v:true
   endif
 endfunction
 function! s:reset_ftplugin() abort

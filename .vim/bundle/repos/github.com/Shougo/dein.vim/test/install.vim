@@ -12,18 +12,16 @@ let s:filetype_save = &l:filetype
 
 let s:this_script = fnamemodify(expand('<sfile>'), ':p')
 
+
+let s:merged_format = "{'repo': v:val.repo, 'rev': get(v:val, 'rev', '')}"
+
 function! s:dein_install() abort
-  call dein#util#_save_merged_plugins(
-        \ sort(map(values(g:dein#_plugins), 'v:val.repo')))
+  call dein#util#_save_merged_plugins()
   return dein#install#_update([], 'install', 0)
 endfunction
 
 function! s:dein_update() abort
   return dein#install#_update([], 'update', 0)
-endfunction
-
-function! s:dein_check_update() abort
-  return dein#install#_update([], 'check_update', 0)
 endfunction
 
 function! s:suite.before_each() abort
@@ -45,7 +43,7 @@ function! s:suite.install() abort
   call dein#add('Shougo/deol.nvim')
   call dein#add('Shougo/neosnippet.vim')
   call dein#add('Shougo/neopairs.vim')
-  call dein#add('Shougo/vimfiler.vim')
+  call dein#add('Shougo/defx.nvim')
   call dein#add('Shougo/denite.nvim')
 
   call dein#end()
@@ -55,6 +53,9 @@ function! s:suite.install() abort
   let plugin = dein#get('deoplete.nvim')
   call s:assert.true(isdirectory(plugin.rtp))
   call s:assert.equals(dein#each('git gc'), 0)
+
+  call s:assert.equals(dein#util#_get_merged_plugins(),
+        \ dein#util#_load_merged_plugins())
 endfunction
 
 function! s:suite.tap() abort
@@ -69,7 +70,6 @@ function! s:suite.tap() abort
 endfunction
 
 function! s:suite.reinstall() abort
-  let g:dein#install_progress_type = 'statusline'
   let g:dein#install_progress_type = 'none'
 
   call dein#begin(s:path)
@@ -434,16 +434,16 @@ endfunction
 function! s:suite.lazy_on_idle() abort
   call dein#begin(s:path)
 
-  call dein#add('Shougo/vimfiler.vim', { 'on_idle': 1})
+  call dein#add('Shougo/defx.nvim', { 'on_idle': 1})
 
   call s:assert.equals(s:dein_install(), 0)
 
   call dein#end()
 
   call s:assert.equals(g:dein#_event_plugins,
-        \ {'CursorHold': ['vimfiler.vim'], 'FocusLost': ['vimfiler.vim']})
+        \ {'CursorHold': ['defx.nvim'], 'FocusLost': ['defx.nvim']})
 
-  let plugin = dein#get('vimfiler.vim')
+  let plugin = dein#get('defx.nvim')
 
   call s:assert.equals(
         \ len(filter(dein#util#_split_rtp(&runtimepath),
@@ -506,7 +506,7 @@ function! s:suite.depends_error_lazy() abort
   call dein#begin(s:path)
 
   call dein#add('Shougo/deoplete.nvim',
-        \ { 'depends': 'vimfiler.vim' })
+        \ { 'depends': 'defx.nvim' })
 
   call s:assert.equals(s:dein_install(), 0)
 
@@ -516,9 +516,9 @@ function! s:suite.depends_error_lazy() abort
 
   call dein#begin(s:path)
 
-  call dein#add('Shougo/vimfiler.vim', { 'lazy': 1 })
+  call dein#add('Shougo/defx.nvim', { 'lazy': 1 })
   call dein#add('Shougo/deoplete.nvim',
-        \ { 'depends': 'vimfiler.vim' })
+        \ { 'depends': 'defx.nvim' })
 
   call s:assert.equals(s:dein_install(), 0)
 
@@ -671,7 +671,6 @@ function! s:suite.build() abort
   call s:assert.true(dein#check_install(['vimproc.vim']))
 
   call s:assert.equals(s:dein_install(), 0)
-  call s:assert.equals(s:dein_check_update(), 0)
 
   call s:assert.equals(g:foobar, 4)
 
@@ -746,11 +745,13 @@ function! s:get_revision(plugin) abort
 endfunction
 
 function! s:suite.ftplugin() abort
+  call dein#begin(tempname())
+
   let g:dein#_ftplugin = {
         \ '_': 'echo 5555',
         \ 'python': 'setlocal foldmethod=indent',
         \ }
-  call dein#begin(tempname())
+
   call dein#add('Shougo/echodoc.vim')
   call dein#end()
 
@@ -765,4 +766,6 @@ function! s:suite.ftplugin() abort
   let python = readfile(dein#util#_get_runtime_path()
         \ . '/after/ftplugin/python.vim')
   call s:assert.equals(python[-1], g:dein#_ftplugin['python'])
+  call s:assert.false(filereadable(dein#util#_get_runtime_path()
+        \ . '/after/ftplugin/_.vim'))
 endfunction

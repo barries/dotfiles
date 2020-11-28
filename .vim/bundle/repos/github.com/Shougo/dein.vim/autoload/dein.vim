@@ -5,9 +5,9 @@
 "=============================================================================
 
 function! dein#_init() abort
-  let g:dein#_cache_version = 100
   let g:dein#name = ''
   let g:dein#plugin = {}
+  let g:dein#_cache_version = 150
   let g:dein#_plugins = {}
   let g:dein#_base_path = ''
   let g:dein#_cache_path = ''
@@ -24,9 +24,19 @@ function! dein#_init() abort
         \ && $HOME ==# expand('~'.$SUDO_USER)
   let g:dein#_progname = fnamemodify(v:progname, ':r')
   let g:dein#_init_runtimepath = &runtimepath
+  let g:dein#_loaded_rplugins = v:false
+
+  if get(g:, 'dein#lazy_rplugins', v:false)
+    " Disable remote plugin loading
+    let g:loaded_remote_plugins = 1
+  endif
 
   augroup dein
-    autocmd FuncUndefined * call dein#autoload#_on_func(expand('<afile>'))
+    autocmd!
+    autocmd FuncUndefined *
+          \ if stridx(expand('<afile>'), 'remote#') != 0 |
+          \   call dein#autoload#_on_func(expand('<afile>')) |
+          \ endif
     autocmd BufRead *? call dein#autoload#_on_default_event('BufRead')
     autocmd BufNew,BufNewFile *? call dein#autoload#_on_default_event('BufNew')
     autocmd VimEnter *? call dein#autoload#_on_default_event('VimEnter')
@@ -56,10 +66,12 @@ function! dein#load_cache_raw(vimrcs) abort
   return [json_decode(list[1]), json_decode(list[2])]
 endfunction
 function! dein#load_state(path, ...) abort
-  if !(a:0 > 0 ? a:1 : has('vim_starting') &&
-        \ (!exists('&loadplugins') || &loadplugins || g:dein#_is_sudo))
-        \ | return 1 | endif
-  call dein#_init()
+  if !exists('#dein')
+    call dein#_init()
+  endif
+  let sourced = a:0 > 0 ? a:1 : has('vim_starting') &&
+        \  (!exists('&loadplugins') || &loadplugins)
+  if (g:dein#_is_sudo || !sourced) | return 1 | endif
   let g:dein#_base_path = expand(a:path)
 
   let state = get(g:, 'dein#cache_directory', g:dein#_base_path)
@@ -95,7 +107,7 @@ function! dein#end() abort
   return dein#util#_end()
 endfunction
 function! dein#add(repo, ...) abort
-  return dein#parse#_add(a:repo, get(a:000, 0, {}))
+  return dein#parse#_add(a:repo, get(a:000, 0, {}), v:false)
 endfunction
 function! dein#local(dir, ...) abort
   return dein#parse#_local(a:dir, get(a:000, 0, {}), get(a:000, 1, ['*']))
@@ -121,8 +133,9 @@ function! dein#update(...) abort
         \ 'update', dein#install#_is_async())
 endfunction
 function! dein#check_update(...) abort
-  return dein#install#_update(get(a:000, 0, []),
-        \ 'check_update', dein#install#_is_async())
+  return dein#install#_check_update(
+        \ get(a:000, 1, []), get(a:000, 0, v:false),
+        \ dein#install#_is_async())
 endfunction
 function! dein#direct_install(repo, ...) abort
   call dein#install#_direct_install(a:repo, (a:0 ? a:1 : {}))
@@ -136,6 +149,12 @@ function! dein#reinstall(plugins) abort
 endfunction
 function! dein#rollback(date, ...) abort
   call dein#install#_rollback(a:date, (a:0 ? a:1 : []))
+endfunction
+function! dein#save_rollback(rollbackfile, ...) abort
+  call dein#install#_save_rollback(a:rollbackfile, (a:0 ? a:1 : []))
+endfunction
+function! dein#load_rollback(rollbackfile, ...) abort
+  call dein#install#_load_rollback(a:rollbackfile, (a:0 ? a:1 : []))
 endfunction
 function! dein#remote_plugins() abort
   return dein#install#_remote_plugins()

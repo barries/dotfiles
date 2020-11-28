@@ -2,10 +2,12 @@
 "
 " DEPENDENCIES:
 "
-" Copyright: (C) 2017-2018 Ingo Karkat
+" Copyright: (C) 2017-2019 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
+
+let s:compatFor = (exists('g:IngoLibrary_CompatFor') ? ingo#collections#ToDict(split(g:IngoLibrary_CompatFor, ',')) : {})
 
 "******************************************************************************
 "* PURPOSE:
@@ -22,13 +24,13 @@
 "   <into >
 "	command! -range Foo execute ingo#compat#commands#keeppatterns() '<line1>,<line2>substitute/\<...\>/FOO/g'
 "******************************************************************************
-if exists(':keeppatterns') == 2
+if exists(':keeppatterns') == 2 && ! has_key(s:compatFor, 'keeppatterns')
     function! ingo#compat#commands#keeppatterns()
 	return 'keeppatterns'
     endfunction
 else
     if exists('ZzzzKeepPatterns') != 2
-	command! -nargs=* ZzzzKeepPatterns execute <q-args> | call histdel('search', -1) | let @/ = histget('search', -1) | nohlsearch
+	command! -nargs=* ZzzzKeepPatterns let g:ingo#compat#commands#histnr = histnr('search') | execute <q-args> | if g:ingo#compat#commands#histnr != histnr('search') | call histdel('search', -1) | let @/ = histget('search', -1) | nohlsearch | endif
     endif
     function! ingo#compat#commands#keeppatterns()
 	return 'ZzzzKeepPatterns'
@@ -78,5 +80,19 @@ function! ingo#compat#commands#NormalWithCount( ... )
 	return 0
     endif
 endfunction
+
+if v:version == 704 && has('patch601') || v:version > 704
+" For these Vim versions, repeat.vim uses feedkeys(), which is asynchronous, so
+" the actual sequence would only be executed after the caller finished. With
+" this function, callers can force synchronous execution of the typeahead now to
+" be able to work on the effects of command repetition.
+function! ingo#compat#commands#ForceSynchronousFeedkeys()
+    call feedkeys('', 'x')
+endfunction
+else
+function! ingo#compat#commands#ForceSynchronousFeedkeys()
+    return
+endfunction
+endif
 
 " vim: set ts=8 sts=4 sw=4 noexpandtab ff=unix fdm=syntax :

@@ -1,49 +1,11 @@
 " ingo/collections.vim: Functions to operate on collections.
 "
 " DEPENDENCIES:
-"   - ingo/dict.vim autoload script
-"   - ingo/list.vim autoload script
 "
-" Copyright: (C) 2011-2017 Ingo Karkat
+" Copyright: (C) 2011-2020 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
-"
-" REVISION	DATE		REMARKS
-"   1.028.015	10-Oct-2016	Add
-"				ingo#collections#SeparateItemsAndSeparators(), a
-"				variant of
-"				ingo#collections#SplitKeepSeparators().
-"   1.025.014	24-Jul-2016	Add ingo#collections#Reduce().
-"   1.025.013	01-May-2015	Add ingo#collections#Partition().
-"   1.023.012	22-Oct-2014	Add ingo#collections#mapsort().
-"   1.014.011	15-Oct-2013	Use the extracted ingo#list#AddOrExtend().
-"   1.011.010	12-Jul-2013	Make ingo#collections#ToDict() handle empty list
-"				items via an optional a:emptyValue argument.
-"				This also distinguishes it from
-"				ingo#dict#FromKeys().
-"				ENH: Handle empty list items in
-"				ingo#collections#Unique() and
-"				ingo#collections#UniqueStable().
-"   1.009.009	25-Jun-2013	Add ingo#collections#Flatten() and
-"				ingo#collections#Flatten1().
-"				Delegate ingo#collections#ToDict()
-"				implementation to ingo#dict#FromKeys().
-"				Move ingo#collections#MakeUnique() to
-"				ingo/collections/unique.vim.
-"   1.001.008	21-Feb-2013	Move to ingo-library. Change case of *#unique*
-"				functions.
-"	007	09-Nov-2012	Add ingocollections#MakeUnique().
-"	006	16-Aug-2012	Add ingocollections#uniqueSorted() and
-"				ingocollections#uniqueStable() variants of
-"				ingocollections#unique().
-"	005	30-Jul-2012	Split off ingocollections#ToDict() from
-"				ingocollections#unique(); it is useful on its
-"				own.
-"	004	25-Jul-2012	Add ingocollections#numsort().
-"	003	17-Jun-2011	Add ingocollections#isort().
-"	002	11-Jun-2011	Add ingocollections#SplitKeepSeparators().
-"	001	08-Oct-2010	file creation
 
 function! ingo#collections#ToDict( list, ... )
 "******************************************************************************
@@ -192,7 +154,7 @@ function! ingo#collections#SplitKeepSeparators( expr, pattern, ... )
 "		Other empty items are kept when {pattern} matches at least one
 "		character or when {keepempty} is non-zero.
 "* RETURN VALUES:
-"   List of items.
+"   List of items: [item1, sep1, item2, sep2, item3, ...]
 "******************************************************************************
     let l:keepempty = (a:0 ? a:1 : 0)
     let l:prevIndex = 0
@@ -232,6 +194,8 @@ function! ingo#collections#SeparateItemsAndSeparators( expr, pattern, ... )
 "* PURPOSE:
 "   Like the built-in |split()|, but return both items and the separators
 "   matched by a:pattern as two separate Lists.
+"* SEE ALSO:
+"   Use join(ingo#list#Join(items, separators), '') to recombine.
 "* ASSUMPTIONS / PRECONDITIONS:
 "   None.
 "* EFFECTS / POSTCONDITIONS:
@@ -246,7 +210,7 @@ function! ingo#collections#SeparateItemsAndSeparators( expr, pattern, ... )
 "		Other empty items are kept when {pattern} matches at least one
 "		character or when {keepempty} is non-zero.
 "* RETURN VALUES:
-"   List of [items, separators].
+"   List of [items, separators]: [[item1, item2, item3, ...], [sep1, sep2, ...]]
 "******************************************************************************
     let l:keepempty = (a:0 ? a:1 : 0)
     let l:prevIndex = 0
@@ -281,6 +245,69 @@ function! ingo#collections#SeparateItemsAndSeparators( expr, pattern, ... )
     endwhile
 
     return [l:items, l:separators]
+endfunction
+function! ingo#collections#SplitIntoMatches( expr, pattern, ... )
+"******************************************************************************
+"* PURPOSE:
+"   Like the built-in |split()|, but only return the separators matched by
+"   a:pattern, and discard the text in between (what is normally returned by
+"   split()). Optionally it checks that the discarded text only matches
+"   a:allowedDiscardPattern, and throws an exception if something else would be
+"   discarded.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:expr	Text to be split.
+"   a:pattern	Regular expression that specifies the separator text that
+"		delimits the items to be discarded.
+"   a:allowedDiscardPattern Optional regular expression that if given checks all
+"                           discarded text in between separators for match. If
+"                           one does not match, a "SplitIntoMatches: Cannot
+"                           discard TEXT" exception is thrown. To ensure that
+"                           everything matches as separators, and all items are
+"                           empty, pass "" or "^$".
+"* RETURN VALUES:
+"   List of separators matching a:pattern: [sep1, ...].
+"******************************************************************************
+    let l:allowedDiscardPattern = (a:0 ? (empty(a:1) ? '^$' : a:1) : '')
+    let l:prevIndex = 0
+    let l:index = 0
+    let l:separator = ''
+    let l:separators = []
+
+    while ! empty(a:expr)
+	let l:index = match(a:expr, a:pattern, l:prevIndex)
+	if l:index == -1
+	    let l:remainder = strpart(a:expr, l:prevIndex)
+	    if ! empty(l:allowedDiscardPattern) && matchstr(l:remainder, '\C' . l:allowedDiscardPattern) !=# l:remainder
+		throw 'SplitIntoMatches: Cannot discard ' . string(l:remainder)
+	    endif
+
+	    break
+	endif
+	let l:item = strpart(a:expr, l:prevIndex, (l:index - l:prevIndex))
+	if ! empty(l:allowedDiscardPattern) && matchstr(l:item, '\C' . l:allowedDiscardPattern) !=# l:item
+	    throw 'SplitIntoMatches: Cannot discard ' . string(l:item)
+	endif
+
+	let l:prevIndex = matchend(a:expr, a:pattern, l:prevIndex)
+	let l:separator = strpart(a:expr, l:index, (l:prevIndex - l:index))
+
+	if empty(l:item) && empty(l:separator)
+	    " We have a zero-width separator; consume at least one character to
+	    " avoid the endless loop.
+	    let l:prevIndex = matchend(a:expr, '\_.', l:index)
+	    if l:prevIndex == -1
+		break
+	    endif
+	else
+	    call s:add(l:separators, l:separator, 1)
+	endif
+    endwhile
+
+    return l:separators
 endfunction
 
 function! ingo#collections#isort( i1, i2 )
@@ -331,6 +358,131 @@ function! ingo#collections#numsort( i1, i2, ... )
     return l:i1 == l:i2 ? 0 : l:i1 > l:i2 ? 1 : -1
 endfunction
 
+function! ingo#collections#FileModificationTimeSort( i1, i2 )
+"******************************************************************************
+"* PURPOSE:
+"   Sort by modification time (|getftime()|); recently modifified files first.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   i1, i2  Elements (assumed to be existing filespecs).
+"* RETURN VALUES:
+"   -1, 0 or 1, as specified by the sort() function.
+"******************************************************************************
+    return -1 * ingo#collections#memoized#Mapsort('getftime(v:val)', a:i1, a:i2, {'cacheTimeInSeconds': 10})
+endfunction
+
+function! ingo#collections#CharacterCountAscSort( i1, i2 )
+"******************************************************************************
+"* PURPOSE:
+"   Sort function for strings by number of characters (|strchars()|); shorter
+"   comes before longer; same length sorts alphabetically ascending.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   i1, i2  Strings.
+"* RETURN VALUES:
+"   -1, 0 or 1, as specified by the sort() function.
+"******************************************************************************
+    if a:i1 ==# a:i2
+	return 0
+    endif
+    let [l:len1, l:len2] = [ingo#compat#strchars(a:i1), ingo#compat#strchars(a:i2)]
+
+    if l:len1 == l:len2
+	" No difference in length, sort alphabetically ascending.
+	return a:i1 ># a:i2 ? 1 : -1
+    else
+	" Shorter before longer.
+	return l:len1 > l:len2 ? 1 : -1
+    endif
+endfunction
+function! ingo#collections#CharacterCountDescSort( i1, i2 )
+"******************************************************************************
+"* PURPOSE:
+"   Sort function for strings by number of characters (|strchars()|); longer
+"   comes before shorter; same length sorts alphabetically ascending.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   i1, i2  Strings.
+"* RETURN VALUES:
+"   -1, 0 or 1, as specified by the sort() function.
+"******************************************************************************
+    if a:i1 ==# a:i2
+	return 0
+    endif
+    let [l:len1, l:len2] = [ingo#compat#strchars(a:i1), ingo#compat#strchars(a:i2)]
+
+    if l:len1 == l:len2
+	" No difference in length, sort alphabetically ascending.
+	return a:i1 ># a:i2 ? 1 : -1
+    else
+	" Longer before shorter.
+	return l:len1 < l:len2 ? 1 : -1
+    endif
+endfunction
+function! ingo#collections#StringDisplayWidthAscSort( i1, i2 )
+"******************************************************************************
+"* PURPOSE:
+"   Sort function for strings by display width (|strdisplaywidth()|); smaller
+"   comes before wider; same width sorts alphabetically ascending.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   i1, i2  Strings.
+"* RETURN VALUES:
+"   -1, 0 or 1, as specified by the sort() function.
+"******************************************************************************
+    if a:i1 ==# a:i2
+	return 0
+    endif
+    let [l:len1, l:len2] = [ingo#compat#strdisplaywidth(a:i1), ingo#compat#strdisplaywidth(a:i2)]
+
+    if l:len1 == l:len2
+	" No difference in width, sort alphabetically ascending.
+	return a:i1 ># a:i2 ? 1 : -1
+    else
+	" Smaller before wider.
+	return l:len1 > l:len2 ? 1 : -1
+    endif
+endfunction
+function! ingo#collections#StringDisplayWidthDescSort( i1, i2 )
+"******************************************************************************
+"* PURPOSE:
+"   Sort function for strings by display width (|strdisplaywidth()|); wider
+"   comes before smaller; same width sorts alphabetically ascending.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   i1, i2  Strings.
+"* RETURN VALUES:
+"   -1, 0 or 1, as specified by the sort() function.
+"******************************************************************************
+    if a:i1 ==# a:i2
+	return 0
+    endif
+    let [l:len1, l:len2] = [ingo#compat#strdisplaywidth(a:i1), ingo#compat#strdisplaywidth(a:i2)]
+
+    if l:len1 == l:len2
+	" No difference in width, sort alphabetically ascending.
+	return a:i1 ># a:i2 ? 1 : -1
+    else
+	" Wider before smaller.
+	return l:len1 < l:len2 ? 1 : -1
+    endif
+endfunction
+
 function! ingo#collections#mapsort( string, i1, i2 )
 "******************************************************************************
 "* PURPOSE:
@@ -351,6 +503,61 @@ function! ingo#collections#mapsort( string, i1, i2 )
 "******************************************************************************
     let [l:i1, l:i2] = map([a:i1, a:i2], a:string)
     return l:i1 == l:i2 ? 0 : l:i1 > l:i2 ? 1 : -1
+endfunction
+function! ingo#collections#SortOnOneAttribute( attribute, o1, o2, ... )
+    let l:defaultValue = (a:0 ? a:1 : 0)
+    let l:a1 = get(a:o1, a:attribute, l:defaultValue)
+    let l:a2 = get(a:o2, a:attribute, l:defaultValue)
+    return (l:a1 ==# l:a2 ? 0 : l:a1 ># l:a2 ? 1 : -1)
+endfunction
+function! ingo#collections#PrioritySort( o1, o2, ... )
+    return call('ingo#collections#SortOnOneAttribute', ['priority', a:o1, a:o2] + a:000)
+endfunction
+function! ingo#collections#SortOnTwoAttributes( firstAttribute, secondAttribute, o1, o2, ... )
+"******************************************************************************
+"* PURPOSE:
+"   Helper sort function for objects that sort on a:firstAttribute first; if
+"   that is equal or does not exist on both, sort on a:secondAttribute.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:firstAttribute    Primary attribute to sort on.
+"   a:secondAttribute   Secondary attribute to sort on; is used when two objects
+"                       don't have the primary attribute or it is equal.
+"   a:o1, a:o2          Objects to be compared.
+"   a:firstDefaultValue Optional default value if a:firstAttribute does not
+"                       exist. Default is 0.
+"   a:secondDefaultValue
+"* RETURN VALUES:
+"   -1, 0 or 1, as specified by the sort() function.
+"******************************************************************************
+    let l:firstDefaultValue = (a:0 ? a:1 : 0)
+    if has_key(a:o1, a:firstAttribute) || has_key(a:o2, a:firstAttribute)
+	let l:first1 = get(a:o1, a:firstAttribute, l:firstDefaultValue)
+	let l:first2 = get(a:o2, a:firstAttribute, l:firstDefaultValue)
+	if l:first1 !=# l:first2
+	    return (l:first1 ># l:first2 ? 1 : -1)
+	endif
+    endif
+
+    let l:secondDefaultValue = (a:0 >= 2 ? a:2 : l:firstDefaultValue)
+    let l:second1 = get(a:o1, a:secondAttribute, l:secondDefaultValue)
+    let l:second2 = get(a:o2, a:secondAttribute, l:secondDefaultValue)
+    return (l:second1 ==# l:second2 ? 0 : l:second1 ># l:second2 ? 1 : -1)
+endfunction
+function! ingo#collections#SortOnOneListElement( index, l1, l2, ... )
+    let l:defaultValue = (a:0 ? a:1 : 0)
+    let l:i1 = get(a:l1, a:index, l:defaultValue)
+    let l:i2 = get(a:l2, a:index, l:defaultValue)
+    return (l:i1 ==# l:i2 ? 0 : l:i1 ># l:i2 ? 1 : -1)
+endfunction
+function! ingo#collections#SortOnFirstListElement( l1, l2 ) abort
+    return ingo#collections#SortOnOneListElement(0, a:l1, a:l2)
+endfunction
+function! ingo#collections#SortOnSecondListElement( l1, l2 ) abort
+    return ingo#collections#SortOnOneListElement(1, a:l1, a:l2)
 endfunction
 
 function! ingo#collections#Flatten1( list )
@@ -379,6 +586,10 @@ function! ingo#collections#Partition( list, Predicate )
 "* PURPOSE:
 "   Separate a List / Dictionary into two, depending on whether a:Predicate is
 "   true for each member of the collection.
+"* SEE ALSO:
+"   - If you want to split off only elements from the start of a List while
+"     a:Predicate matches (not elements from anywhere in a:list), use
+"     ingo#list#split#RemoveFromStartWhilePredicate() instead.
 "* ASSUMPTIONS / PRECONDITIONS:
 "   None.
 "* EFFECTS / POSTCONDITIONS:

@@ -6,11 +6,6 @@
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
-"
-" REVISION	DATE		REMARKS
-"   1.028.003	10-Oct-2016	Add ingo#list#Join().
-"   1.024.002	16-Mar-2015	Add ingo#list#Zip() and ingo#list#ZipLongest().
-"   1.014.001	15-Oct-2013	file creation
 
 function! ingo#list#Make( val, ... )
 "******************************************************************************
@@ -136,6 +131,34 @@ function! ingo#list#Join( ... )
 	let l:i += 1
     endwhile
     return l:result
+endfunction
+
+
+function! ingo#list#AddNonEmpty( list, val, ... )
+"******************************************************************************
+"* PURPOSE:
+"   Add a:val if it is not empty as an item to a:list.
+"* ASSUMPTIONS / PRECONDITIONS:
+"   None.
+"* EFFECTS / POSTCONDITIONS:
+"   None.
+"* INPUTS:
+"   a:list  List to be extended.
+"   a:val   Arbitrary value of arbitrary type.
+"   a:idx   Optional index before where in a:list to insert. Default to
+"	    appending.
+"* RETURN VALUES:
+"   Returns the resulting a:list.
+"******************************************************************************
+    if ! empty(a:val)
+	if a:0
+	    call insert(a:list, a:val, a:1)
+	else
+	    call add(a:list, a:val)
+	endif
+    endif
+
+    return a:list
 endfunction
 
 function! ingo#list#NonEmpty( list )

@@ -23,6 +23,14 @@ function! s:suite.parse_dict() abort
   let parsed_plugin = dein#parse#_dict(dein#parse#_init('', plugin))
   call s:assert.equals(parsed_plugin.merged, 0)
 
+  let plugin = {'name': 'baz', 'rev': 'foo'}
+  let parsed_plugin = dein#parse#_dict(dein#parse#_init('foo', plugin))
+  call s:assert.equals(parsed_plugin.path, '_foo')
+
+  let plugin = {'name': 'baz', 'rev': 'foo/bar'}
+  let parsed_plugin = dein#parse#_dict(dein#parse#_init('foo', plugin))
+  call s:assert.equals(parsed_plugin.path, '_foo_bar')
+
   let $BAZDIR = '/baz'
   let repo = '$BAZDIR/foo'
   let plugin = {'repo': repo}
@@ -66,7 +74,7 @@ function! s:suite.load_toml() abort
         \ '',
         \ '[[plugins]]',
         \ '# repository name is required.',
-        \ "repo = 'kana/vim-niceblock'",
+        \ "repo = 'Shougo/denite.nvim'",
         \ "on_map = '<Plug>'",
         \ '[[plugins]]',
         \ "repo = 'Shougo/neosnippet.vim'",
@@ -82,6 +90,8 @@ function! s:suite.load_toml() abort
         \ '\',
         \ "echo",
         \ "'''",
+        \ '[plugins.ftplugin]',
+        \ 'c = "let g:bar = 0"',
         \ ], toml)
 
   call dein#begin(s:path)
@@ -89,7 +99,8 @@ function! s:suite.load_toml() abort
   call s:assert.equals(g:dein#_ftplugin, {})
   call s:assert.equals(dein#load_toml(toml), 0)
   call s:assert.equals(g:dein#_hook_add, "\nlet g:foo = 0")
-  call s:assert.equals(g:dein#_ftplugin, {'c': 'let g:bar = 0'})
+  call s:assert.equals(g:dein#_ftplugin,
+        \ {'c': "let g:bar = 0\nlet g:bar = 0"})
   call dein#end()
 
   call s:assert.equals(dein#get('neosnippet.vim').on_i, 1)
@@ -158,8 +169,10 @@ function! s:suite.plugins2toml() abort
   let parsed_plugin = dein#parse#_init('Shougo/denite.nvim', {})
   let parsed_plugin2 = dein#parse#_init('Shougo/deoplete.nvim',
         \ {'on_ft': ['vim'], 'hook_add': "hoge\npiyo"})
+  let parsed_plugin3 = dein#parse#_init('Shougo/deoppet.nvim',
+        \ {'on_map': {'n': ['a', 'b']}})
   call s:assert.equals(dein#plugins2toml(
-        \ [parsed_plugin, parsed_plugin2]), [
+        \ [parsed_plugin, parsed_plugin2, parsed_plugin3]), [
         \ "[[plugins]]",
         \ "repo = 'Shougo/denite.nvim'",
         \ "",
@@ -171,6 +184,10 @@ function! s:suite.plugins2toml() abort
         \ "'''",
         \ "on_ft = 'vim'",
         \ "",
+        \ "[[plugins]]",
+        \ "repo = 'Shougo/deoppet.nvim'",
+        \ "on_map = {'n': ['a', 'b']}",
+        \ "",
         \ ])
 endfunction
 
@@ -178,10 +195,12 @@ function! s:suite.trusted() abort
   let sudo = g:dein#_is_sudo
   let g:dein#_is_sudo = 1
 
-  let parsed_plugin = dein#parse#_add('Shougo/denite.nvim', {})
+  let parsed_plugin = dein#parse#_add(
+        \ 'Shougo/deoplete.nvim', {}, v:false)
   call s:assert.equals(parsed_plugin.rtp, '')
 
-  let parsed_plugin = dein#parse#_add('Shougo/denite.nvim', {'trusted': 1})
+  let parsed_plugin = dein#parse#_add(
+        \ 'Shougo/denite.nvim', {'trusted': 1}, v:false)
   call s:assert.not_equals(parsed_plugin.rtp, '')
 
   let g:dein#_is_sudo = sudo

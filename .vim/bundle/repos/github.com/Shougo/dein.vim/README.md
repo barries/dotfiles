@@ -15,6 +15,7 @@ Dein.vim is a dark powered Vim/Neovim plugin manager.
 
 <!-- vim-markdown-toc -->
 
+
 ## Requirements
 
 - Vim 8.0 or above or NeoVim.
@@ -26,6 +27,7 @@ Note: If you use Vim 7.4, please use dein.vim ver.1.5 instead.
 If you need vim-plug like install UI, you can use dein-ui.vim.
 https://github.com/wsdjeg/dein-ui.vim
 
+
 ## Quick start
 
 **Note**: You must define the installation directory before to use dein.  The
@@ -36,9 +38,9 @@ dein.vim does not define a default installation directory.
 You must **not** set the installation directory as `~/.vim/plugin` or
 `~/.config/nvim/plugin`.
 
-### Unix/Linux or Mac OS X
-
 1. Run below script.
+
+For Unix/Linux or Mac OS X
 
 ```sh
 curl https://raw.githubusercontent.com/Shougo/dein.vim/master/bin/installer.sh > installer.sh
@@ -46,27 +48,37 @@ curl https://raw.githubusercontent.com/Shougo/dein.vim/master/bin/installer.sh >
 sh ./installer.sh ~/.cache/dein
 ```
 
+For Windows(PowerShell)
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/Shougo/dein.vim/master/bin/installer.ps1 -OutFile installer.ps1
+# Allow to run third-party script
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+# For example, we just use `~/.cache/dein` as installation directory
+./installer.ps1 ~/.cache/dein
+```
+
 2. Edit your .vimrc like this.
 
 ```vim
 if &compatible
- set nocompatible
+  set nocompatible
 endif
 " Add the dein installation directory into runtimepath
 set runtimepath+=~/.cache/dein/repos/github.com/Shougo/dein.vim
 
 if dein#load_state('~/.cache/dein')
- call dein#begin('~/.cache/dein')
+  call dein#begin('~/.cache/dein')
 
- call dein#add('~/.cache/dein')
- call dein#add('Shougo/deoplete.nvim')
- if !has('nvim')
-   call dein#add('roxma/nvim-yarp')
-   call dein#add('roxma/vim-hug-neovim-rpc')
- endif
+  call dein#add('~/.cache/dein/repos/github.com/Shougo/dein.vim')
+  call dein#add('Shougo/deoplete.nvim')
+  if !has('nvim')
+    call dein#add('roxma/nvim-yarp')
+    call dein#add('roxma/vim-hug-neovim-rpc')
+  endif
 
- call dein#end()
- call dein#save_state()
+  call dein#end()
+  call dein#save_state()
 endif
 
 filetype plugin indent on
@@ -78,6 +90,7 @@ syntax enable
 ```vim
 :call dein#install()
 ```
+
 
 ## Features
 
@@ -101,11 +114,13 @@ syntax enable
 
 - Merge the plugins directories automatically to avoid long 'runtimepath'
 
+
 ## Future works (TODO)
 
 - Other types support (zip, svn, hg, ...)
 
 - Metadata repository support
+
 
 ### Options
 
@@ -118,6 +133,6 @@ Some common options. For a more detailed list, run `:h dein-options`
 | `build`  | `string`             | Command to run after the plugin is installed                                          |
 | `on_ft`  | `string` or `list`   | Load a plugin for the current filetype                                                |
 | `on_cmd` | `string` or `list`   | Load the plugin for these commands                                                    |
-| `rtp`    | `string`             | You can use this option when the repository has the Vim plugin in a subdirectory               |
+| `rtp`    | `string`             | You can use this option when the repository has the Vim plugin in a subdirectory      |
 | `if`     | `string` or `number` | If it is String, dein will eval it.                                                   |
 | `merged` | `number`             | If set to 0, dein doesn't merge the plugin directory.                                 |

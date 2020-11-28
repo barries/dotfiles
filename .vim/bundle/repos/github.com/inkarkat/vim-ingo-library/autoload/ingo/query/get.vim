@@ -2,7 +2,7 @@
 "
 " DEPENDENCIES:
 "
-" Copyright: (C) 2012-2017 Ingo Karkat
+" Copyright: (C) 2012-2020 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
@@ -28,6 +28,7 @@ function! ingo#query#get#Number( maxNum, ... )
 "   when an invalid (i.e. non-digit) number was entered.
 "******************************************************************************
     let l:nr = 0
+    let l:leadingZeroCnt = 0
     while 1
 	let l:char = nr2char(getchar())
 
@@ -38,9 +39,16 @@ function! ingo#query#get#Number( maxNum, ... )
 	endif
 	echon l:char
 
-	let l:nr = 10 * l:nr + str2nr(l:char)
-	if a:maxNum < 10 * l:nr
-	    return l:nr
+	if l:char ==# '0' && l:nr == 0
+	    let l:leadingZeroCnt += 1
+	    if l:leadingZeroCnt >= len(a:maxNum)
+		return 0
+	    endif
+	else
+	    let l:nr = 10 * l:nr + str2nr(l:char)
+	    if a:maxNum < 10 * l:nr || l:leadingZeroCnt + len(l:nr) >= len(a:maxNum)
+		return l:nr
+	    endif
 	endif
     endwhile
 endfunction
@@ -134,7 +142,7 @@ function! ingo#query#get#ValidChar( ... )
     return l:char
 endfunction
 
-function! ingo#query#get#Register( errorRegister, ... )
+function! ingo#query#get#Register( ... )
 "******************************************************************************
 "* PURPOSE:
 "   Query a register from the user.
@@ -151,14 +159,15 @@ function! ingo#query#get#Register( errorRegister, ... )
 "* RETURN VALUES:
 "   Either the register, or an a:errorRegister when aborted or invalid register.
 "******************************************************************************
+    let l:errorRegister = (a:0 ? a:1 : '')
     try
-	let l:register = ingo#query#get#Char({'validExpr': ingo#register#All(), 'invalidExpr': (a:0 ? a:1 : '')})
-	return (empty(l:register) ? a:errorRegister : l:register)
+	let l:register = ingo#query#get#Char({'validExpr': ingo#register#All(), 'invalidExpr': (a:0 >= 2 ? a:2 : '')})
+	return (empty(l:register) ? l:errorRegister : l:register)
     catch /^Vim\%((\a\+)\)\=:E523:/ " E523: Not allowed here
-	return a:errorRegister
+	return l:errorRegister
     endtry
 endfunction
-function! ingo#query#get#WritableRegister( errorRegister, ... )
+function! ingo#query#get#WritableRegister( ... )
 "******************************************************************************
 "* PURPOSE:
 "   Query a register that can be written to from the user.
@@ -176,11 +185,12 @@ function! ingo#query#get#WritableRegister( errorRegister, ... )
 "   Either the writable register, or an a:errorRegister when aborted or invalid
 "   register.
 "******************************************************************************
+    let l:errorRegister = (a:0 ? a:1 : '')
     try
-	let l:register = ingo#query#get#Char({'validExpr': ingo#register#Writable(), 'invalidExpr': (a:0 ? a:1 : '')})
-	return (empty(l:register) ? a:errorRegister : l:register)
+	let l:register = ingo#query#get#Char({'validExpr': ingo#register#Writable(), 'invalidExpr': (a:0 >= 2 ? a:2 : '')})
+	return (empty(l:register) ? l:errorRegister : l:register)
     catch /^Vim\%((\a\+)\)\=:E523:/ " E523: Not allowed here
-	return a:errorRegister
+	return l:errorRegister
     endtry
 endfunction
 

@@ -26,18 +26,12 @@ if [ -d "$HOME/.local/bin" ] ; then
     PATH="$HOME/.local/bin:$PATH"
 fi
 
-stty -ixon # Disable ^S/^Q
+PATH="$PATH:bin:../Tools/bin" # For source-tree (i.e. branch-specific) bins
+
+#Removed for X2Go compatability (prevents "inappropriate ioctl for device"): stty -ixon # Disable ^S/^Q
 
 export EDITOR=nvim
 
 export GTEST_COLOR=1
-export "GDB_FLAGS=-ex 'catch throw' -ex 'set confirm off' -ex 'set pagination off' -ex run"
-export "GDB_AUTORUN_FLAGS=$GDB_FLAGS ex-ex run -ex bt -ex q"
+export "GDB_FLAGS=-iex 'set confirm off' -iex 'set pagination off' -ex 'catch throw' -ex 'catch catch' -ex run"
 
-#export CCACHE=enable
-
-#if xlsatoms -name PRIMARY 2>/dev/null ; then
-#    env | grep DISPLAY | perl -ne 'print "export $_"' > ~/tmp/DISPLAY.sh
-#elif [ -s ~/tmp/DISPLAY.sh ] ; then
-#    . ~/tmp/DISPLAY.sh
-#fi

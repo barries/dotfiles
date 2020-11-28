@@ -2,23 +2,16 @@
 "
 " DEPENDENCIES:
 "
-" Copyright: (C) 2014-2016 Ingo Karkat
+" Copyright: (C) 2014-2020 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
-"
-" REVISION	DATE		REMARKS
-"   1.029.002	08-Dec-2016	Add
-"				ingo#cmdargs#register#ParsePrependedWritableRegister()
-"				alternative to
-"				ingo#cmdargs#register#ParseAppendedWritableRegister().
-"   1.017.001	10-Mar-2014	file creation
 let s:save_cpo = &cpo
 set cpo&vim
 
 let s:writableRegisterExpr = '\([-a-zA-Z0-9"*+_/]\)'
 function! s:GetDirectSeparator( optionalArguments )
-    return (len(a:optionalArguments) > 0 ?
+    return (len(a:optionalArguments) > 0 && a:optionalArguments[0] isnot [] ?
     \   (empty(a:optionalArguments[0]) ?
     \       '\%$\%^' :
     \       a:optionalArguments[0]
@@ -43,13 +36,23 @@ function! ingo#cmdargs#register#ParseAppendedWritableRegister( arguments, ... )
 "			into text) between the text and register (with optional
 "			whitespace in between; mandatory whitespace is always an
 "			alternative). Defaults to any non-alphanumeric
-"			character. If empty: there must be whitespace between
-"			text and register.
+"			character (also when an empty List is passed). If the
+"			empty String: There must be whitespace between text and
+"			register.
+"   a:isPreferText      Optional flag that if the arguments consist solely of a
+"                       register, whether this is counted as text (1, default)
+"                       or as a sole register (0).
 "* RETURN VALUES:
 "   [text, register], or [a:arguments, ''] if no register could be parsed.
 "******************************************************************************
     let l:matches = matchlist(a:arguments, '^\(.\{-}\)\%(\%(\%(' . s:GetDirectSeparator(a:000) . '\)\@<=\s*\|\s\+\)' . s:writableRegisterExpr . '\)$')
-    return (empty(l:matches) ? [a:arguments, ''] : l:matches[1:2])
+    return (empty(l:matches) ?
+    \   (a:0 >= 2 && ! a:2 && a:arguments =~# '^' . s:writableRegisterExpr . '$' ?
+    \       ['', a:arguments] :
+    \       [a:arguments , '']
+    \   ) :
+    \   l:matches[1:2]
+    \)
 endfunction
 
 function! ingo#cmdargs#register#ParsePrependedWritableRegister( arguments, ... )
@@ -68,13 +71,23 @@ function! ingo#cmdargs#register#ParsePrependedWritableRegister( arguments, ... )
 "			into text) between the text and register (with optional
 "			whitespace in between; mandatory whitespace is always an
 "			alternative). Defaults to any non-alphanumeric
-"			character. If empty: there must be whitespace between
-"			text and register.
+"			character (also when an empty List is passed). If the
+"			empty String: There must be whitespace between text and
+"			register.
+"   a:isPreferText      Optional flag that if the arguments consist solely of a
+"                       register, whether this is counted as text (1, default)
+"                       or as a sole register (0).
 "* RETURN VALUES:
 "   [register, text], or ['', a:arguments] if no register could be parsed.
 "******************************************************************************
     let l:matches = matchlist(a:arguments, '^' . s:writableRegisterExpr . '\%(\%(\s*' . s:GetDirectSeparator(a:000) . '\)\@=\|\s\+\)\(.*\)$')
-    return (empty(l:matches) ? ['', a:arguments] : l:matches[1:2])
+    return (empty(l:matches) ?
+    \   (a:0 >= 2 && ! a:2 && a:arguments =~# '^' . s:writableRegisterExpr . '$' ?
+    \       [a:arguments , ''] :
+    \       ['', a:arguments]
+    \   ) :
+    \   l:matches[1:2]
+    \)
 endfunction
 
 let &cpo = s:save_cpo

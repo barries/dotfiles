@@ -2,17 +2,36 @@
 "
 " DEPENDENCIES:
 "
-" Copyright: (C) 2014-2016 Ingo Karkat
+" Copyright: (C) 2014-2019 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
-"
-" REVISION	DATE		REMARKS
-"   1.029.004	16-Dec-2016	Add ingo#pos#SameLineIs[OnOr]After/Before()
-"				variants.
-"   1.025.003	29-Apr-2016	Add ingo#pos#IsInsideVisualSelection().
-"   1.022.002	21-Jul-2014	Add ingo#pos#Before() and ingo#pos#After().
-"   1.019.001	30-Apr-2014	file creation
+
+function! ingo#pos#Make4( pos, ... ) abort
+    if a:0 > 0
+	if a:0 != 1
+	    throw 'Make4: Must pass exactly two line, column arguments or a List'
+	endif
+	return [0, a:pos, a:1, 0]
+    endif
+
+    return (len(a:pos) >= 4 ? a:pos : [0, get(a:pos, 0, 0), get(a:pos, 1, 0), 0])
+endfunction
+function! ingo#pos#Make2( pos ) abort
+    return (len(a:pos) >= 3 ? a:pos[1:2] : a:pos)
+endfunction
+
+
+function! ingo#pos#Compare( posA, posB )
+    if a:posA == a:posB
+	return 0
+    else
+	return (a:posA[0] > a:posB[0] || a:posA[0] == a:posB[0] && a:posA[1] > a:posB[1] ? 1 : -1)
+    endif
+endfunction
+function! ingo#pos#Sort( positions ) abort
+    return sort(a:positions, function('ingo#pos#Compare'))
+endfunction
 
 function! ingo#pos#IsOnOrAfter( posA, posB )
     return (a:posA[0] > a:posB[0] || a:posA[0] == a:posB[0] && a:posA[1] >= a:posB[1])
@@ -46,8 +65,11 @@ function! ingo#pos#IsInsideVisualSelection( pos, ... )
     endif
 endfunction
 
-
 function! ingo#pos#Before( pos )
+    if a:pos[1] == 1
+	return [a:pos[0], 0]
+    endif
+
     let l:charBeforePosition = matchstr(getline(a:pos[0]), '.\%' . a:pos[1] . 'c')
     return (empty(l:charBeforePosition) ? [0, 0] : [a:pos[0], a:pos[1] - len(l:charBeforePosition)])
 endfunction
