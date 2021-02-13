@@ -27,10 +27,12 @@ branches matching all of them are shown.
     --cleanable      List local_up_to_date, local_behind branches
     --diverged       List diverged branches
     --local          List branches in /refs/heads/
-    --releases       List release bramches (names =~ /^\d+(\.\d+){1,3}$/;
+    --releases       List release branches (names =~ /^\d+(\.\d+){1,3}$/;
+    --released       List branches merged into releases
     --remote         List branches in /refs/remotes/
     --stale          List stale branches (only; defaults to --no-stale)
     --stale-too      Also list branches more than 15 days old (overrides --state, --no-stale)
+    --unreleased     List branches not merged into releases
     --worktree       List branches that have worktrees
 
     --no-local   Don't list branches in /refs/heads/
@@ -38,7 +40,7 @@ branches matching all of them are shown.
 
 =head2 Other Options
 
-    --clean     Delete redundant (local_up_to_date, local_behind) branches
+    --clean     Delete redundant (local_up_to_date, local_behind) branches (enables --stale-too by default)
     --help      Prints help
     --no-fetch  Don't fetch first
     --subject   Print git subject from tip
@@ -146,7 +148,8 @@ my $max_non_stale_days = 15;
     $_;
 } @ARGV;
 
-my $stale_opt = 0;
+my $released_opt;
+my $stale_opt;
 
 GetOptions(
     "clean"       => \my $clean_opt,
@@ -155,12 +158,23 @@ GetOptions(
     "fetch!"      => \(my $fetch_opt = 1),
     "local!"      => \my $local_opt,
     "releases!"   => \my $releases_opt,
+    "released!"   => \$released_opt,
     "remote!"     => \my $remote_opt,
     "stale!"      => \$stale_opt,
-    "stale-too!"  => sub { $stale_opt = undef },
+    "stale-too"   => sub { $stale_opt = "stale-too" },
     "subject!"    => \my $subject_opt,
+    "unreleased!" => sub { $released_opt = !$_[1] },
     "worktree!"   => \my $worktree_opt,
 ) or exit(1);
+
+if (!defined $stale_opt) {
+    $stale_opt = ($cleanable_opt || $clean_opt)
+        ? undef  # undef: clean both
+        : 0;     # 0: Don't show stale
+}
+elsif ($stale_opt eq "stale-too") {
+    $stale_opt = undef; # unset: show both stale and not-stale
+}
 
 my @branches;
 my %branches;
@@ -174,9 +188,9 @@ sub branch {
     my $is_new = !$branches{$branch_name};
 
     my $branch = $branches{$branch_name} //= {
-        branch_name => $branch_name,
-        heads       => [],
-        refs        => {},
+        branch_name   => $branch_name,
+        heads         => [],
+        refs          => {},
     };
 
     push @branches, $branch if $is_new;
@@ -195,7 +209,6 @@ sub commit {
         hash          => $hash,
         branch_names  => {},
         child_hashes  => [],
-        is_local_only => 1,
         parent_hashes => [],
         refs          => {},
     };
@@ -232,27 +245,25 @@ for (`git for-each-ref --sort=committerdate @ARGV`) {
 
     my $commit = commit($hash);
 
-    my $heads = branch($ref)->{heads};
+    my $branch = branch($ref);
+    my $heads = $branch->{heads};
     push @$heads, $commit
         unless grep $_ == $commit, @$heads;
 
-    my $ref_is_local = $ref =~ "refs/heads/";
-    $commit->{is_local}      ||=  $ref_is_local;
-    $commit->{is_local_only} &&=  $ref_is_local;
-    $commit->{is_remote}     ||= !$ref_is_local;
-    $commit->{is_on_remote}  ||= !$ref_is_local;
-
-    if (!$ref_is_local) {
-        $ref =~ m{refs/remotes/(.*?)/};
+    if ($ref =~ m{refs/remotes/(.*?)}) {
+        $commit->{has_remote_ref}  = 1;
         $commit->{ref_repos}->{$1} = 1;
+        $commit->{branches}->{$branch->{branch_name}}->{$1} = 1;
+        $branch->{has_remote_ref} = 1;
     }
     else {
+        $commit->{has_local_ref}      = 1;
         $commit->{ref_repos}->{local} = 1;
+        $commit->{branches}->{$branch->{branch_name}}->{local} = 1;
+        $branch->{has_local_ref} = 1;
     }
 
     $commit->{is_on_release_branch} = $ref =~ /\/\d+(?:\.\d+){2,3}$/;
-
-    $commit->{refs}->{$ref} = 1;
 }
 
 my $format = "%(objectname)\t%(committerdate:format-local:%Y-%m-%d %H:%M:%S)\t%(committerdate:unix)\t%(authorname)\t%(worktreepath)";
@@ -276,16 +287,13 @@ my $max_seconds_since_epoch = max map $_->{seconds_since_epoch}, values %commits
 
 for (@branches) {
     my $heads = $_->{heads};
+
     $_->{seconds_since_epoch} = max map $_->{seconds_since_epoch},  @$heads;
 
-    $_->{age}           =  $max_seconds_since_epoch - $_->{seconds_since_epoch};
-    $_->{date}          =  maxstr map $_->{date}, @$heads;
-
-    $_->{is_local}      =  grep $_->{is_local},  @$heads;
-    $_->{is_local_only} = !grep $_->{is_remote}, @$heads;
-    $_->{is_remote}     =  grep $_->{is_remote}, @$heads;
-    $_->{is_stale}      =  $_->{age} > $max_non_stale_days * 24 * 60 * 60;
-    $_->{worktree}      =  join ", ", grep length, map $_->{worktree}, @$heads; # there should be only 1
+    $_->{age}                  =  $max_seconds_since_epoch - $_->{seconds_since_epoch};
+    $_->{date}                 =  maxstr map $_->{date}, @$heads;
+    $_->{is_stale}             =  $_->{age} > $max_non_stale_days * 24 * 60 * 60;
+    $_->{worktree}             =  join ", ", grep length, map $_->{worktree}, @$heads; # there should be only 1, join() to be transparent in case of defect
 }
 
 @branches = sort { $a->{date} cmp $b->{date} } @branches;
@@ -327,16 +335,22 @@ my @heads = map @{$_->{heads}}, @branches;
     }
 }
 
+for (@branches) {
+    my $heads = $_->{heads};
+    $_->{has_unreleased_heads} =  grep !$_->{is_on_release_branch}, @$heads;
+    $_->{all_heads_unreleased} = !grep  $_->{is_on_release_branch}, @$heads;
+}
+
 { # mark remote commits, so local heads that are behind remote heads are flagged as remote
-    my @q = grep $_->{is_on_remote}, @heads;
+    my @q = grep $_->{has_remote_ref}, @heads;
     while (@q) {
         my $c = shift @q;
-        $c->{is_on_remote} = 1;
-        push @q, grep !$_->{is_on_remote}, map $commits{$_}, @{$c->{parents}};
+        $c->{has_remote_ref} = 1;
+        push @q, grep !$_->{has_remote_ref}, map $commits{$_}, @{$c->{parents}};
     }
 }
 
-my @unmerged_heads = grep !$_->{is_on_release_branch} && !$_->{is_on_remote}, @heads;
+my @unmerged_heads = grep !$_->{is_on_release_branch} && !$_->{has_remote_ref}, @heads;
 
 # Ignore branches that were only merged into since a commit that was released
 @unmerged_heads = grep {
@@ -350,35 +364,38 @@ my @unmerged_heads = grep !$_->{is_on_release_branch} && !$_->{is_on_remote}, @h
 
 $_->{is_unmerged_head} = 1 for @unmerged_heads;
 
+my $printed_cleaning_announcement;
+
 my @w;
 my @rows;
 for my $branch (@branches) {
     my $worktree = $branch->{worktree} // "";
 
     next unless (
-           (!defined $local_opt    || (!!$local_opt    == !!$branch->{is_local}         ))
-        && (!defined $releases_opt || (!!$releases_opt == !!$branch->{is_release_branch}))
-        && (!defined $remote_opt   || (!!$remote_opt   == !!$branch->{is_remote}        ))
-        && (!defined $stale_opt    || (!!$stale_opt    == !!$branch->{is_stale}         ))
-        && (!defined $worktree_opt || (!!$worktree_opt == !!length $worktree            ))
+           (!defined $local_opt    || (!!$local_opt    == !!$branch->{has_local_ref}       ))
+        && (!defined $releases_opt || (!!$releases_opt == !!$branch->{is_release_branch}   ))
+        && (!defined $released_opt || (!!$released_opt ==  !$branch->{all_heads_unreleased}))
+        && (!defined $remote_opt   || (!!$remote_opt   == !!$branch->{has_local_ref}       ))
+        && (!defined $stale_opt    || (!!$stale_opt    == !!$branch->{is_stale}            ))
+        && (!defined $worktree_opt || (!!$worktree_opt == !!length $worktree               ))
     );
 
     my @heads = sort {
-           $a->{is_local_only} <=> $b->{is_local_only} # local releases last
-        || $a->{offset       } <=> $b->{offset       } # children before parents
-        || $a->{hash_code    } cmp $b->{hash_code    } # tie breaker, for stability
+           !$a->{has_remote_ref} <=> !$b->{has_remote_ref} # local heads last
+        || $a->{offset         } <=> $b->{offset         } # children before parents
+        || $a->{hash_code      } cmp $b->{hash_code      } # tie breaker, for stability
     } uniq @{$branch->{heads}};
 
     my $local_description = "";
 
-    if ($branch->{is_local_only}) {
+    if (!$branch->{has_remote_ref}) {
         $local_description = "local_only";
     }
-    elsif (@heads == 1 && $branch->{is_local} && $branch->{is_remote}) {
+    elsif (@heads == 1 && $branch->{has_local_ref} && $branch->{has_remote_ref}) {
         $local_description = "local_up_to_date";
     }
 
-    if (@heads >= 2 && $heads[-1]->{is_local}) {
+    if (@heads >= 2 && $heads[-1]->{has_local_ref}) {
         my $local_can_ff;
         my $remote_can_ff;
 
@@ -441,10 +458,11 @@ for my $branch (@branches) {
             || ($local_description eq "local_only" && grep $_->{is_on_release_branch}, @heads)
         ) {
             if ($clean_opt) {
-                if (length $worktree) {
-                    say "Skipping $branch_name due to worktree $worktree";
-                }
-                else {
+                if (!length $worktree) {
+                    if (!$printed_cleaning_announcement) {
+                        print "Deleting local branches (refs/heads/*) only\n"; # Prevent users from worrying about remote branches
+                        $printed_cleaning_announcement = 1;
+                    }
                     my @cmd = (qw(git branch -D), $branch_name);
                     system @cmd
                         and die "$!: ", join(" ", @cmd), "\n";
@@ -456,9 +474,6 @@ for my $branch (@branches) {
             next;
         }
     }
-
-    $branch->{has_unreleased_heads} =  grep !$_->{is_on_release_branch}, @{$branch->{heads}};
-    $branch->{all_heads_unreleased} = !grep  $_->{is_on_release_branch}, @{$branch->{heads}};
 
     my @short_hashes = map substr($_->{hash}, 0, 8), @heads;
 
@@ -510,10 +525,12 @@ for my $branch (@branches) {
         $tips_description =~ s/tip/merge_only_tip/g;
     }
 
+    my %seen_authors;
+
     my $row = [
        $heads[0]->{date}    // "",
        $branch_name,
-       $heads[0]->{author}  // "",
+       join(", ", grep length && !$seen_authors{$_}++, map $_->{author}, @heads),
        $released_description,
        $local_description,
        $tips_description,

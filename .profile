@@ -33,5 +33,5 @@ PATH="$PATH:bin:../Tools/bin" # For source-tree (i.e. branch-specific) bins
 export EDITOR=nvim
 
 export GTEST_COLOR=1
-export "GDB_FLAGS=-iex 'set confirm off' -iex 'set pagination off' -ex 'catch throw' -ex 'catch catch' -ex run"
+export "GDB_FLAGS=-iex 'set confirm off' -iex 'set pagination off' -iex 'set follow-fork-mode parent' -iex 'set detach-on-fork on' -ex 'catch throw' -ex 'catch catch' -ex run"
 

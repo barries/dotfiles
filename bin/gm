@@ -26,8 +26,9 @@ else
                 BRANCHES=`git for-each-ref "refs/heads/$BRANCH" "refs/remotes/*/$BRANCH" | perl -lane '$h{$F[0]}++; END { print for sort keys %h; }'`
                 BRANCHES=( $BRANCHES )
                 if [[ ${#BRANCHES[@]} > 1 ]]; then
-                    echo "error: ${#BRANCHES[@]} branches found" 1>&2
-                    git for-each-ref "refs/heads/$BRANCH" "refs/remotes/*/$BRANCH" | perl -lane '$F[2] =~ s{refs/\w+/}{}; print "$F[0] $F[2]"'
+                    echo "error: $BRANCH and origin/$BRANCH have different commits" 1>&2
+                    echo
+                    gbl --no-fetch $BRANCH
                     exit 1
                 fi
                 BRANCH=`git for-each-ref "refs/heads/$BRANCH" "refs/remotes/*/$BRANCH" | perl -lane '$F[2] =~ s{refs/\w+/}{}; print $F[2]' | tail -n 1`

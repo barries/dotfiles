@@ -5,4 +5,6 @@ shopt -s nullglob
 
 FORMAT="%Cred%h%Creset - %s %C(243)(%C(bold yellow)%(trailers:key=branch,valueonly,separator=)%C(243), %C(bold blue)%an%C(243), %cr at %ci)%Creset%C(yellow)%d%Creset"
 
-git log --graph --abbrev-commit "--pretty=format:$FORMAT" "$@"
+# Abbrev length of 10 makes it less error-prone to search for git blame commits in gg output
+
+git log --graph --abbrev=10 --abbrev-commit "--pretty=format:$FORMAT" "$@"

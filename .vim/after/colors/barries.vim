@@ -24,7 +24,7 @@ hi UnfocusedEndOfBuffer ctermfg=021 ctermbg=234
 " Syntax highlighting (other color-groups using default, see :help group-name):
 hi Comment    cterm=NONE ctermfg=244                        gui=NONE guifg=#00aaaa
 hi Constant   cterm=NONE ctermfg=117                        gui=NONE guifg=#00ffff
-hi Delimiter  cterm=bold ctermfg=Yellow                     gui=NONE guifg=#ffff00
+hi Delimiter  cterm=bold ctermfg=250                        gui=NONE guifg=#ffff00
 hi Function   cterm=NONE ctermfg=White                      gui=NONE guifg=#00ff00
 hi Identifier cterm=NONE ctermfg=White                      gui=bold guifg=#ff00ff
 hi PreProc    cterm=bold ctermfg=248                        gui=NONE guifg=#ffff00
@@ -38,9 +38,11 @@ hi cppSTLfunction ctermfg=159
 hi cCustomClass   ctermfg=255
 hi cCustomFunc    ctermfg=Blue
 hi cppAccess      cterm=underline ctermfg=195
-hi TSConstructor ctermfg=White " treesitter weirdly places a constructor attr on the RHS of -> method calls
-hi TSFunction ctermfg=White
-hi TSMethod   ctermfg=White
+
+hi TSConstructor               ctermfg=White " treesitter weirdly places a constructor attr on the RHS of -> method calls
+hi TSFunction                  ctermfg=White
+hi TSMethod                    ctermfg=White
+hi TSConstBuiltin   cterm=BOLD ctermfg=117
 
 hi ivcgAlignment        cterm=underline      ctermfg=Green        gui=NONE guifg=#ffff00
 hi ivcgBlock            cterm=NONE           ctermfg=Green        gui=NONE guifg=#ffff00

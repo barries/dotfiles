@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
+ls --color=auto -1 "$@" # that's a one, not an ell

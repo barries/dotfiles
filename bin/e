@@ -24,3 +24,5 @@ if [[ $EDITOR == *"nvim"* && -e $NVIM_LISTEN_ADDRESS ]]; then
 else
     $EDITOR $VIM_OPTIONS "$@"
 fi
+
+stty sane # in case of vim crash
