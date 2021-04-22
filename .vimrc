@@ -52,7 +52,7 @@ endif
   call dein#add('godlygeek/tabular')
   call dein#add('inkarkat/vim-ingo-library')
   call dein#add('inkarkat/vim-mark') " sets maps on \r *after* .vimrc exit, see VimEnter_Initialize()
-  call dein#add('~/vim-submode')
+  call dein#add('kana/vim-submode')
   call dein#add('nvim-treesitter/nvim-treesitter')
   call dein#add('mbbill/undotree')
   "call dein#add('vim-scripts/Align')
@@ -1480,6 +1480,7 @@ let l:nav_axes = [
     \   ['R',            '<C-w>R'                      ],
     \   ['W',            '<C-w>W'                      ],
     \   ['b', '<End>',   '<C-w>b'                      ],
+    \   ['c', '<End>',   '<C-w>c'                      ],
     \   ['h', '<Left>',  '<C-w>h'                      ],
     \   ['j', '<Down>',  '<C-w>j'                      ],
     \   ['k', '<Up>',    '<C-w>k'                      ],
@@ -1501,10 +1502,12 @@ let l:nav_axes = [
     \   ['=',            '<C-w>='                      ],
     \   ['!',            '<C-w>!'                      ],
     \   ['<C-c>',        ':call MarkWindow("c")<CR>'   ],
+    \   ['<C-e>',        '<C-e>'                       ],
     \   ['<C-n>',        ':new<CR>'                    ],
     \   ['<C-o>',        ['x', ':call OpenFile()<CR>'] ],
-    \   ['<C-x>',        ':call MarkWindow("x")<CR>'   ],
     \   ['<C-v>',        ':call PasteWindow()<CR>'     ],
+    \   ['<C-x>',        ':call MarkWindow("x")<CR>'   ],
+    \   ['<C-y>',        '<C-y>'                       ],
     \   ['<C-Home>',     ':tabfirst<CR>'               ],
     \   ['<C-PageUp>',   ':tabprev<CR>'                ],
     \   ['<C-PageDown>', ':tabnext<CR>'                ],
@@ -1584,7 +1587,6 @@ function! PasteWindow() abort
         return
     endif
 
-    new
     call execute("buf " . s:marked_window[1])
 
     if s:paste_mode == "x"

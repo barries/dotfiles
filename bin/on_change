@@ -855,7 +855,7 @@ HELP_TEXT
             @unknown_keys = ();
             $err_msg = "";
             if ($key eq "e" && $ENV{NVIM_LISTEN_ADDRESS} && -e $ENV{NVIM_LISTEN_ADDRESS}) {
-                my @prog = ("e", $output_opt);
+                my @prog = ("e", "-p", $output_opt);
                 system @prog
                     and $err_msg = join(" ", @prog, "returned", $? >> 8);
             }
