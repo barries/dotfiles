@@ -117,13 +117,13 @@ fi
 
 source /home/barries/bin/iv_station_shortcut_bash_completions.rc
 
-export DISPLAY_FN=~/tmp/DISPLAY.rc
-
+#export DISPLAY_FN=~/tmp/DISPLAY.rc
+#
 # Allow existing bash shells to adapt when a new bash is started with working X forwarding.
-if [[ ! -z $DISPLAY && -z $DISPLAY_SET && -d ~/tmp ]] && xset q >/dev/null 2>&1; then
-    echo "if [[ \$DISPLAY != $DISPLAY ]] && DISPLAY='$DISPLAY' xset q > /dev/null 2>&1; then export 'DISPLAY=$DISPLAY'; fi" > $DISPLAY_FN
-fi
-
-export DISPLAY_SET=yes
-
-PROMPT_COMMAND='if [[ -f $DISPLAY_FN ]] ; then source $DISPLAY_FN; fi'
+#if [[ ! -z $DISPLAY && -z $DISPLAY_SET && -d ~/tmp ]] && xset q >/dev/null 2>&1; then
+#    echo "if [[ \$DISPLAY != $DISPLAY ]] && DISPLAY='$DISPLAY' xset q > /dev/null 2>&1; then export 'DISPLAY=$DISPLAY'; fi" > $DISPLAY_FN
+#fi
+#
+#export DISPLAY_SET=yes
+#
+#PROMPT_COMMAND='if [[ -f $DISPLAY_FN ]] ; then source $DISPLAY_FN; fi'

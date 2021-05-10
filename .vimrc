@@ -619,14 +619,32 @@ local function get_first_tree_root()
     return tree:root()
 end
 
-function get_visual_range()
-    vim.cmd('normal! gv')
+function get_visual_mode_range()
+    local _, vrow, vcol = unpack(vim.fn.getpos("v")) -- v: "visual mode"
+    local _, crow, ccol = unpack(vim.fn.getpos(".")) -- c: "cursor"
+
+    return vrow, vcol, crow, ccol
+end
+
+function normalize_visual_range(vrow, vcol, crow, ccol)
+    local is_reversed = compare_row_col(vrow, vcol, crow, ccol) > 0
+    if is_reversed then
+        vrow, vcol, crow, ccol = crow, ccol, vrow, vcol
+    end
+
+    return vrow, vcol, crow, ccol
+end
+
+local function get_node_for_visual_range(vrow, vcol, crow, ccol)
+    if not vim.fn.mode():match("[vV]") then
+        vim.cmd('normal! gv')
+    end
+
     local mode = vim.fn.mode()
     if mode ~= 'v' then
         vim.cmd('normal! v')
     end
-    local _, vrow, vcol = unpack(vim.fn.getpos("v"))
-    local _, crow, ccol = unpack(vim.fn.getpos("."))
+    local vrow, vcol, crow, ccol = get_visual_mode_range()
 
     local is_reversed = compare_row_col(vrow, vcol, crow, ccol) > 0
     if is_reversed then
@@ -637,11 +655,10 @@ function get_visual_range()
     vcol = vcol - 1
     crow = crow - 1
 
-    return is_reversed, mode, vrow, vcol, crow, ccol
-end
+    if mode ~= 'v' then
+        vim.cmd('normal! ' .. mode)
+    end
 
-local function get_node_for_visual_range(vrow, vcol, crow, ccol)
-    local is_reversed, mode, vrow, vcol, crow, ccol = get_visual_range()
     return get_first_tree_root():descendant_for_range(vrow, vcol, crow, ccol)
 end
 
@@ -673,35 +690,133 @@ function get_char()
     return vim.api.nvim_get_current_line():sub(col + 1, col + 1)
 end
 
-function grow_visual_region()
-    local is_reversed, mode, vrow, vcol, crow, ccol = get_visual_range()
+function get_visual_range_lines(mode, srow, scol, erow, ecol)
+    local lines = vim.fn.getline(srow, erow);
 
-    local srow, scol, erow, ecol = vrow, vcol, crow, ccol
+    if #lines > 0 then
+        if mode == "v" then
+            local last_line_at_eol = (#lines[#lines] == ecol)
 
-    if srow == erow and scol == ecol - 1 and mode == 'v' then
-        local char = get_char()
-        if char == ' ' or char == '\t' or char == '' then -- '' is eol
-            vim.cmd('normal! wh')
-
-            erow, ecol = get_cursor()
-            ecol = ecol + 1
-
-            vim.cmd('normal! oB')
-            if get_char() ~= '' then
-                vim.cmd('normal! El')
+            lines[#lines] = lines[#lines]:sub(1, ecol)
+            lines[1] = lines[1]:sub(scol)
+            for i in ipairs(lines) do
+                if i < #lines or last_line_at_eol then
+                    lines[i] = lines[i] .. "\n"
+                end
             end
-            local row, col = get_cursor() -- This probably breaks if on space before first non-space or after last non-space
-            if get_char() == ''    then
+        elseif mode == "" then
+            for i in ipairs(lines) do
+                lines[i] = lines[i]:sub(1, ecol)
+                lines[i] = lines[i]:sub(scol) .. "\n"
+            end
+        end
+    end
+
+    return lines
+end
+
+function get_visual_range_string(...)
+    return vim.fn.json_encode(table.concat(get_visual_range_lines(...)))
+end
+
+local grow_visual_region_stack     = {};
+local grow_visual_region_stack_pos = 0;
+
+function grow_visual_region(is_visual_mode)
+    if is_visual_mode then
+        -- grow_visual_region() is called using ex command line, which resets vim to normal mode; re-enter visual mode
+        vim.cmd('normal! gv')
+    else
+        local crow, ccol = get_cursor()
+        grow_visual_region_stack = {
+            {'n', crow, ccol + 1, crow, ccol + 1}
+        };
+        grow_visual_region_stack_pos = 1
+        --print(grow_visual_region_stack_pos, vim.inspect(grow_visual_region_stack))
+
+        vim.cmd('normal! v')
+    end
+
+    --print(grow_visual_region_stack_pos, #grow_visual_region_stack)
+    if grow_visual_region_stack_pos < #grow_visual_region_stack then
+        grow_visual_region_stack_pos = grow_visual_region_stack_pos + 1
+        set_visual_region(unpack(grow_visual_region_stack[grow_visual_region_stack_pos]))
+        --print(grow_visual_region_stack_pos, vim.inspect(grow_visual_region_stack))
+        return
+    end
+
+    local mode = vim.fn.visualmode()
+    local vrow, vcol, crow, ccol = get_visual_mode_range()
+    local srow, scol, erow, ecol;
+
+    vrow, vcol, crow, ccol = normalize_visual_range(vrow, vcol, crow, ccol)
+
+    local trace = function(s)
+    end
+
+    if mode == 'v' and #grow_visual_region_stack == 1 then
+        if vrow == crow and vcol == ccol then
+            local char = get_char()
+            if char == ' ' or char == '\t' or char == '' then -- '' is eol
+                trace('space')
+                vim.cmd('normal! wh')
+                srow, scol = get_cursor()
+
+                vim.cmd('normal! oB')
+                if get_char() ~= '' then
+                    vim.cmd('normal! El')
+                end
+                if get_char() == '' then
+                    vim.cmd('normal! l')
+                end
+            elseif char:match('[%w_]') then
+                trace('word')
+                vim.cmd('normal! iw')
+                srow, scol = get_cursor()
+
+                vim.cmd('normal! o')
+            elseif char:match("[(){}[%]<>]") then
+                trace('block' .. char)
+                vim.cmd('normal! a' .. char)
+                srow, scol = get_cursor()
+                vim.cmd('normal! o')
+            elseif char == '"' or char == '\'' then
+                trace('string')
+                vim.cmd('normal! i' .. char)
+
+                local sr, sc, er, ec = get_visual_mode_range()
+                local is_single_char = (sr == er and sc == ec)
+                if is_single_char then
+                    srow, scol = get_cursor()
+                else
+                    vim.cmd('normal! l') -- wierdly, the l and h works with '' and "" because i" and i' leave the cursor on the first ' of empty strings
+                    srow, scol = get_cursor()
+                    vim.cmd('normal! oh')
+                end
+            else
+                trace('punct')
+                repeat ----
+                    vim.cmd('normal! h')
+                until get_char('.'):match("[%w_\"'(){}[%]<>%s]")
                 vim.cmd('normal! l')
+                srow, scol = get_cursor()
+                repeat ----
+                    vim.cmd('normal! l')
+                until get_char('.'):match("[%w_\"'(){}[%]<>%s]")
+                vim.cmd('normal! h')
             end
-
-            srow, scol = get_cursor()
-            return
-            -- TODO: goto set_new_visual_range
+            if srow then
+                erow, ecol = get_cursor()
+                goto set_new_visual_range
+            end
         end
     end
 
     do
+        vrow = vrow - 1
+        vcol = vcol - 1
+        crow = crow - 1
+
         local root = get_first_tree_root()
         local node = root:descendant_for_range(vrow, vcol, crow, ccol)
 
@@ -846,7 +961,7 @@ function grow_visual_region()
                 for child in parent:iter_children() do
                     if child == node then
                         if prev_node == nil then
-                            goto set_new_visual_range;
+                            goto tweak_and_set_new_visual_range;
                         end
                         srow, scol = prev_node:range()
                         break
@@ -859,7 +974,7 @@ function grow_visual_region()
 
             if use_parent then
                 if parent == root then
-                    goto set_new_visual_range; -- we almost *never* want to select the whole file
+                    goto tweak_and_set_new_visual_range; -- we almost *never* want to select the whole file
                 end
                 node = parent
                 select_node = true
@@ -868,11 +983,22 @@ function grow_visual_region()
         end
     end
 
-    ::set_new_visual_range::
+    ::tweak_and_set_new_visual_range::
 
     srow = srow + 1
-    scol = scol + 1
     erow = erow + 1
+    ecol = ecol - 1
+
+    ::set_new_visual_range::
+
+    if compare_row_col(srow, scol, erow, ecol) > 0 then
+        local tmp;
+        tmp = srow; srow = erow; erow = tmp;
+        tmp = scol; scol = ecol; ecol = tmp;
+    end
+
+    scol = scol + 1
+    ecol = ecol + 1
 
     local is_line_mode = false
     if srow < erow then
@@ -887,28 +1013,70 @@ function grow_visual_region()
         is_line_mode = is_first_non_whitespace and is_last_non_whitespace
     end
 
-    if is_reversed then
-        srow, scol, erow, ecol = erow, ecol, srow, scol
+    mode = is_line_mode and 'V' or 'v';
+    local undo_entry = {mode, srow, scol, erow, ecol};
+    if table.concat(undo_entry, ",") ~= table.concat(grow_visual_region_stack[#grow_visual_region_stack], ",") then
+        table.insert(grow_visual_region_stack, {mode, srow, scol, erow, ecol})
+        grow_visual_region_stack_pos = #grow_visual_region_stack
+        print(grow_visual_region_stack_pos, vim.inspect(grow_visual_region_stack))
     end
-    vim.fn.setpos('.', { 0, srow, scol, 0 })
-    vim.cmd('normal! o')
-    vim.fn.setpos('.', { 0, erow, ecol, 0 })
 
-    if is_line_mode then
-        vim.cmd('normal! V')
+    set_visual_region(mode, normalize_visual_range(srow, scol, erow, ecol))
+end
+
+function set_visual_region(mode, srow, scol, erow, ecol)
+    if mode == 'n' then
+        if vim.fn.mode() ~= 'n' then
+            vim.cmd('normal! <esc>')
+        end
+    else
+        if vim.fn.mode() ~= 'v' then
+            vim.cmd('normal v')
+        end
+    end
+
+    -- use '. and :normal o because passing '< and '> marks could _may_ result in swapping them (see manual)
+
+    vim.fn.setpos('.', { 0, srow, scol, 0 })
+
+    if mode ~= 'n' then
+        vim.cmd('normal! o')
+        vim.fn.setpos('.', { 0, erow, ecol, 0 })
+
+        if mode ~= 'v' then
+            vim.cmd('normal! ' .. mode)
+        end
     end
 end
+
+function undo_grow_visual_region()
+    if grow_visual_region_stack_pos > 0 then
+        grow_visual_region_stack_pos = grow_visual_region_stack_pos - 1
+        if grow_visual_region_stack_pos == 0 then
+            if vim.fn.mode() ~= 'n' then
+                vim.cmd('normal: <esc>')
+            end
+        else
+            print(grow_visual_region_stack_pos, vim.inspect(grow_visual_region_stack))
+            set_visual_region(unpack(grow_visual_region_stack[grow_visual_region_stack_pos]))
+        end
+    end
+end
+
 EOF
 
     map      <silent> <F10> :lua show_hl_captures()<CR>
     xnoremap <silent> <F10> :lua enumerate_visual_nodes()<CR>
 
-    nmap              <M-v> v
-    nmap              +     vv
-    xnoremap <silent> <M-v> :lua grow_visual_region()<CR>
-    xnoremap <silent> v     :lua grow_visual_region()<CR>
-    xnoremap <silent> +     :lua grow_visual_region()<CR>
+    nnoremap          +     :lua grow_visual_region()<CR>
+    nnoremap          <M-v> :lua grow_visual_region()<CR>
+    nnoremap          -     :echo "Not in visual mode"<CR>
+    xnoremap <silent> +     :lua grow_visual_region("is_visual_mode")<CR>
+    xnoremap <silent> <M-v> :lua grow_visual_region("is_visual_mode")<CR>
+    xnoremap <silent> -     :lua undo_grow_visual_region()<CR>
 
+    silent! unmap <M-v> " TODO: remove
+    silent! unmap v     " TODO: remove
 endif
 
 " Searching
