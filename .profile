@@ -25,11 +25,6 @@ fi
 if [ -d "$HOME/.local/bin" ] ; then
     PATH="$HOME/.local/bin:$PATH"
 fi
-
-PATH="$PATH:bin:../Tools/bin" # For source-tree (i.e. branch-specific) bins
-
-#Removed for X2Go compatability (prevents "inappropriate ioctl for device"): stty -ixon # Disable ^S/^Q
-
 export EDITOR=nvim
 
 export GTEST_COLOR=1
