@@ -31,7 +31,7 @@ branches matching all of them are shown.
     --released       List branches merged into releases
     --remote         List branches in /refs/remotes/
     --stale          List stale branches (only; defaults to --no-stale)
-    --stale-too      Also list branches more than 15 days old (overrides --state, --no-stale)
+    --all            Also list branches more than 15 days old (overrides --state, --no-stale)
     --unreleased     List branches not merged into releases
     --worktree       List branches that have worktrees
 
@@ -40,7 +40,7 @@ branches matching all of them are shown.
 
 =head2 Other Options
 
-    --clean     Delete redundant (local_up_to_date, local_behind) branches (enables --stale-too by default)
+    --clean     Delete redundant (local_up_to_date, local_behind) branches (enables --all by default)
     --help      Prints help
     --no-fetch  Don't fetch first
     --subject   Print git subject from tip
@@ -152,6 +152,7 @@ my $released_opt;
 my $stale_opt;
 
 GetOptions(
+    "all"         => sub { $stale_opt = "all" },
     "clean"       => \my $clean_opt,
     "cleanable!"  => \my $cleanable_opt,
     "diverged!"   => \my $diverged_opt,
@@ -161,7 +162,6 @@ GetOptions(
     "released!"   => \$released_opt,
     "remote!"     => \my $remote_opt,
     "stale!"      => \$stale_opt,
-    "stale-too"   => sub { $stale_opt = "stale-too" },
     "subject!"    => \my $subject_opt,
     "unreleased!" => sub { $released_opt = !$_[1] },
     "worktree!"   => \my $worktree_opt,
@@ -172,7 +172,7 @@ if (!defined $stale_opt) {
         ? undef  # undef: clean both
         : 0;     # 0: Don't show stale
 }
-elsif ($stale_opt eq "stale-too") {
+elsif ($stale_opt eq "all") {
     $stale_opt = undef; # unset: show both stale and not-stale
 }
 
@@ -183,7 +183,7 @@ my %commits;
 
 sub branch {
     my ($ref) = @_;
-    (my $branch_name = $ref) =~ s{(.*/)}{};
+    (my $branch_name = $ref) =~ s{^refs/(?:heads|remotes/[^/]*)/}{};
 
     my $is_new = !$branches{$branch_name};
 

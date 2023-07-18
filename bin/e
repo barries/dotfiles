@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 shopt -s nullglob
-set -u
 
 EDITOR=${EDITOR:=nvim}
 
@@ -12,9 +11,7 @@ if [[ $# -ne 0 && $EDITOR == *"vim"* && $1 != "-d" && $1 != "-p" && $1 != "-" ]]
     VIM_OPTIONS="-O "
 fi
 
-NVIM_LISTEN_ADDRESS=${NVIM_LISTEN_ADDRESS:-}
-
-if [[ $EDITOR == *"nvim"* && -e $NVIM_LISTEN_ADDRESS ]]; then
+if [[ $EDITOR == *"nvim"* && ! -z ${NVIM+is_set} ]]; then
     ADDITIONAL_OPTS=""
     if [[ $# -eq 0 ]]; then
         ADDITIONAL_OPTS="-cc vnew"

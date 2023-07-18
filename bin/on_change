@@ -43,12 +43,12 @@ on_change - run a command and re-run it when files change
 
 =HEAD2 SYNOPSIS
 
-    on_change <options> ...command...
-    on_change <options> '...command...'
+    on_change [<dirs_to_watch] [<options>] ...command...
+    on_change [<dirs_to_watch] [<options>] '...command...'
 
-    on_change ...options... -c command
-    on_change ...options... <command_string>  # Will launch "bash -c <command_string>"
-    on_change ...options... ...command...
+    on_change ... -c command
+    on_change ... <command_string>  # Will launch "bash -c <command_string>"
+    on_change ... ...command...
 
 Options:
 
@@ -98,6 +98,11 @@ my @cmd;
 
 my $ON_CHANGE_DIR = $ENV{ON_CHANGE_DIR} // "$ENV{HOME}/tmp";
 
+my @watch_paths;
+while (@ARGV && -d $ARGV[0]) {
+    push @watch_paths, shift @ARGV;
+}
+
 GetOptions(
     "c|command=s"   => sub {
         die "multiple -$_[0] not allowed\n" if @cmd;
@@ -108,12 +113,8 @@ GetOptions(
     "q|quiet"             => \my $quiet_opt,
     "x|exit"              => \my $exit_opt,
     "R|RAW-CONTROL-CHARS" => \my $RAW_opt,
-    "w|watch=s"           => \my @watch_paths,
+    "w|watch=s"           => \@watch_paths,
 ) or usage(1);
-
-while (@ARGV && -d $ARGV[0]) {
-    push @watch_paths, shift @ARGV;
-}
 
 if (@ARGV) {
     if (@cmd) {
