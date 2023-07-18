@@ -1,94 +1,22 @@
-"dein Scripts-----------------------------
 if &compatible
   set nocompatible               " Be iMproved
 endif
 
-syn off
-
-set runtimepath^=~/.vim
-
-" Manual vim-mark mappings.
-"
-" vim-mark maps a fair number of sequences, including \r, which
-" I map for replace, and # and *, which make search on marks
-" not work intuitively for me.
-"
-" Its \n (clear marks) has a caveat that repeating \m doesn't
-" have, and repeating \m to clear the highlighted mark is all
-" I need.
-
-let g:mw_no_mappings               = 1   " 1: Tell mark.vim not to install global mappings
-let g:mwHistAdd                    = ''  " '': Don't auto add to search or input histories
-let g:mwDefaultHighlightingPalette = 'extended'
-
-if !len(maparg('<Leader>m', 'n'))
-    nmap <unique> <Leader>m <Plug>MarkSet
-    xmap <unique> <Leader>m <Plug>MarkSet
-endif
-
-" Begin dein Config--------------------------
-
-set runtimepath+=~/.vim/bundle/repos/github.com/Shougo/dein.vim
-
-if len($TMUX)
-    let $DISPLAY=''   " Prevent slowness in tmux. TODO: Only run this if in tmux
-endif
-
-"if dein#load_state('~/.vim/bundle/')
-  call dein#begin('~/.vim/bundle/')
-
-  " Let dein manage dein
-  call dein#add(expand('~/.vim/bundle/repos/github.com/Shougo/dein.vim'))
-
-  " Add or remove your plugins here:
-  " Removed for now (barries): call dein#add('Shougo/neosnippet.vim')
-  " Removed for now (barries): call dein#add('Shougo/neosnippet-snippets')
-
-  " You can specify revision/branch/tag.
-  " Removed for now (barries): call dein#add('Shougo/deol.nvim', { 'rev': 'a1b5108fd' })
-  "
-  " To force an update :call dein#update()
-  call dein#add('danro/rename.vim')
-  call dein#add('godlygeek/tabular')
-  call dein#add('inkarkat/vim-ingo-library')
-  call dein#add('inkarkat/vim-mark') " sets maps on \r *after* .vimrc exit, see VimEnter_Initialize()
-  call dein#add('kana/vim-submode')
-  call dein#add('nvim-treesitter/nvim-treesitter')
-  call dein#add('mbbill/undotree')
-  "call dein#add('vim-scripts/Align')
-  "
-
-  " Required:
-  call dein#end()
-  call dein#save_state()
-"endif
-
-"source plugin/AnsiEsc.vim
-
-filetype plugin indent on
+"filetype plugin indent on
 "syntax enable
 
-" If you want to install not installed plugins on startup.
-"if dein#check_install()
-"  call dein#install()
-"endif
-
-" End dein Scripts-------------------------
-
-au FileType c   setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
-au FileType cpp setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
-au FileType c   setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
-
-colorscheme barries
-syn on
+"au FileType c   setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
+"au FileType cpp setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
+"au FileType c   setlocal suffixesadd+=.c,.cpp,.h,.hpp,.lua
 
 " Appearance
 if !has("nvim")
     set ttymouse=xterm2 " Allow mouse to drag splits
     set t_Co=256
     let $GIT_EDITOR = 'nvr -cc split --remote-wait'
-    set termguicolors
 endif
+
+set termguicolors
 
 " FZF Config ----------------
 
@@ -400,6 +328,8 @@ endif
 set formatoptions+=1  " When wrapping paragraphs, don't end lines
                       " with 1-letter words (looks stupid)
 set path=$PWD/**    " :find files in ./...
+
+autocmd BufNewFile,BufRead * setlocal formatoptions-=ro | setlocal formatoptions+=1 " an autocommand so C and other plugins don't clobber
 
 set guioptions-=t   " Remove toolbar
 set scrolloff=0     " Don't force lines above and below cursor
@@ -1623,7 +1553,7 @@ vnoremap <expr> al GetLineTextObjectExpr('a')
 let g:submode_timeout          = 0
 let g:submode_keep_leaving_key = 1
 
-" Navigation axis ideas
+" Navigation axis ideas (todos?)
 "     undo tree tips ("leaves"); see undotree() and its alt entries
 "     file history of current window (or buffer); see :getjumplist(); add keys to jumps submode, like C-Left, C-Right?
 "
@@ -1638,6 +1568,7 @@ let l:nav_axes = [
     \[ 'undo_time',   ['gg-', 'gg+', 'ggU'], ['-',     '+',     ], ['g-',    'g+'   ] ],
     \[ 'braces',      ['gg{', 'gg}'       ], ['{',     '}',     ], ['[{',    ']}'   ] ],
     \
+    \[ 'window',      [       '<C-w><C-w>'], [                  ], [                ] ],
     \[ 'window',      [              'gw' ], [                  ], [                ] ],
     \[ 'window',      [              'ggw'], ['',      '',      ], [                ],
     \   ['E',            ':E '                         ],
