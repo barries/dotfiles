@@ -28,7 +28,7 @@ shopt -s checkwinsize
 #shopt -s globstar
 
 # make less more friendly for non-text input files, see lesspipe(1)
-#[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
 
 # set variable identifying the chroot you work in (used in the prompt below)
 if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
@@ -79,18 +79,22 @@ if [ -x /usr/bin/dircolors ]; then
     #alias dir='dir --color=auto'
     #alias vdir='vdir --color=auto'
 
-    #alias grep='grep --color=auto'
-    #alias fgrep='fgrep --color=auto'
-    #alias egrep='egrep --color=auto'
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
 fi
 
 # colored GCC warnings and errors
 #export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
 
 # some more ls aliases
-#alias ll='ls -l'
-#alias la='ls -A'
-#alias l='ls -CF'
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -1 -F'
+
+# Add an "alert" alias for long running commands.  Use like so:
+#   sleep 10; alert
+alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
 
 # Alias definitions.
 # You may want to put all your additions into a separate file like
@@ -101,7 +105,9 @@ if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
 fi
 
-source /usr/share/bash-completion/completions/tmuxinator
+if [ -e ~/.dircolors ]; then
+    eval $(dircolors -b ~/.dircolors)
+fi
 
 # enable programmable completion features (you don't need to enable
 # this, if it's already enabled in /etc/bash.bashrc and /etc/profile
@@ -115,15 +121,19 @@ if ! shopt -oq posix; then
 fi
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
 
-source /home/barries/bin/iv_station_shortcut_bash_completions.rc
+# >>> conda initialize >>>
+# !! Contents within this block are managed by 'conda init' !!
+__conda_setup="$('/home/barries/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    if [ -f "/home/barries/miniconda3/etc/profile.d/conda.sh" ]; then
+        . "/home/barries/miniconda3/etc/profile.d/conda.sh"
+    else
+        export PATH="/home/barries/miniconda3/bin:$PATH"
+    fi
+fi
+unset __conda_setup
+# <<< conda initialize <<<
 
-#export DISPLAY_FN=~/tmp/DISPLAY.rc
-#
-# Allow existing bash shells to adapt when a new bash is started with working X forwarding.
-#if [[ ! -z $DISPLAY && -z $DISPLAY_SET && -d ~/tmp ]] && xset q >/dev/null 2>&1; then
-#    echo "if [[ \$DISPLAY != $DISPLAY ]] && DISPLAY='$DISPLAY' xset q > /dev/null 2>&1; then export 'DISPLAY=$DISPLAY'; fi" > $DISPLAY_FN
-#fi
-#
-#export DISPLAY_SET=yes
-#
-#PROMPT_COMMAND='if [[ -f $DISPLAY_FN ]] ; then source $DISPLAY_FN; fi'
+

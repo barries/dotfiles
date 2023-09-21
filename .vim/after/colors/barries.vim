@@ -44,11 +44,11 @@ hi TSFunction     ctermfg=White  guifg=#ffffff
 hi TSMethod       ctermfg=White  guifg=#ffffff
 hi TSConstBuiltin cterm=BOLD     gui=BOLD                                                                                   ctermfg=117  guifg=#87dfff
 
-hi ivcgAlignment        cterm=underline  gui=underline  ctermfg=Green
-hi ivcgBlock            cterm=NONE       gui=NONE       ctermfg=Green
-hi ivcgBraces           cterm=NONE       gui=NONE       ctermfg=Green
-hi ivcgQuasiQuote       cterm=NONE       gui=NONE       ctermfg=Green
-hi ivcgKeywordDirective cterm=NONE       gui=NONE       ctermfg=Green
+hi ivcgAlignment        cterm=underline  gui=underline  ctermfg=Green guifg=#00ff00
+hi ivcgBlock            cterm=NONE       gui=NONE       ctermfg=Green guifg=#00ff00
+hi ivcgBraces           cterm=NONE       gui=NONE       ctermfg=Green guifg=#00ff00
+hi ivcgQuasiQuote       cterm=NONE       gui=NONE       ctermfg=Green guifg=#00ff00
+hi ivcgKeywordDirective cterm=NONE       gui=NONE       ctermfg=Green guifg=#00ff00
 
 hi PerlSpecialString ctermfg=LightCyan  guifg=#e0ffff ctermbg=234  guibg=#1c1c1c  cterm=underline  gui=underline
 
@@ -56,8 +56,8 @@ hi ColorColumn  cterm=NONE            gui=NONE            ctermbg=233         gu
 hi CursorColumn cterm=underline       gui=underline       ctermbg=none
 hi CursorLine   cterm=underline       gui=underline       ctermbg=none
 hi CursorLineNr ctermfg=248           guifg=#a8a8a8
-hi MatchParen   cterm=bold            gui=bold            ctermfg=blue        ctermbg=bg      guibg=bg
-hi CurSearch    cterm=bold            gui=bold            ctermfg=black       ctermbg=Yellow  guibg=#ffff00
+hi MatchParen   cterm=bold            gui=bold            ctermfg=Black       guifg=#000000  ctermbg=Green   guibg=#008000
+hi CurSearch    cterm=bold            gui=bold            ctermfg=Black       guifg=#000000  ctermbg=Yellow  guibg=#ffff00
 hi Search       cterm=NONE            gui=NONE            ctermbg=214         guibg=#ffaf00
 hi IncSearch    cterm=NONE            gui=NONE            ctermbg=214         guibg=#ffaf00
 hi Substitute   cterm=NONE            gui=NONE            ctermfg=Yellow      guifg=#ffff00  " bg seems to be ignored
