@@ -3,4 +3,4 @@
 set -eo pipefail
 shopt -s nullglob
 
-gd --cached "$@"
+gd --cached --ignore-all-space "$@"

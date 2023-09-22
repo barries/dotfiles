@@ -4,6 +4,8 @@ sub eval_in_empty_lexical_context {
     return eval $_[0];
 }
 
+use v5.34;
+
 use warnings;
 use strict;
 
@@ -206,7 +208,7 @@ sub fingerprints {
             }
 
             if (!-d $_) {
-                my $f = (-e $_ && stat(_))[7] + (stat(_))[9];
+                my $f = (-e $_ && (stat(_))[7] // 0) + ((stat(_))[9] // 0);
                 if (!$fingerprints{$_} || $fingerprints{$_} != $f) {
                     my $fn = $_;
                     $fn =~ s{^\/}{};
@@ -273,21 +275,23 @@ sub max_col_to_show() {
 
 sub shellquote {
     my ($s) = @_;
-    return $s unless !length $s || $s =~ /[<>(){}\s|;&\$*?\\"'`]/;
+
+    return '""' unless length $s;
+    return $s   unless $s =~ /[<>(){}\s|;&\$*?\\"'`]/;
 
     my $single_quoted = do {
-        $_ = $s;
+        local $_ = $s;
         s{'}{'\\''}g;
         qq{'$_'};
     };
 
     my $double_quoted = do {
-        $_ = $s;
+        local $_ = $s;
         s{([\$`\\"!])}{\\$1}g;
         qq{"$_"};
     };
 
-    return length $single_quoted < length $double_quoted
+    return length $single_quoted <= length $double_quoted
         ? $single_quoted
         : $double_quoted;
 }
@@ -477,6 +481,39 @@ sub save_line {
     print $line unless $quiet_opt || @lines >= $term_lines;
 }
 
+sub format_result_code {
+}
+
+sub set_title {
+    my @add_ons = (
+        @_,
+        ($command_result || $err_msg || $nav_err_msg) ? "ERROR: " : (),
+        $command_result
+            ? "command returned " . ($command_result >> 8) . (
+                ($command_result & 0xFF)
+                    ? (" with signal " . ($command_result & 0xFF))
+                    : ""
+            )
+            : (),
+        $err_msg     || (),
+        $nav_err_msg || (),
+    );
+
+    my $title = join(" ",
+        "\$",
+        $prog_name,
+        $exit_opt  ? "-x " : (),
+        $quiet_opt ? "-q " : (),
+        map("-w " . shellquote($_), @watch_paths),
+        shellquote($command),
+        @add_ons ? ("   # ", @add_ons) : ()
+    );
+
+    $title =~ s{[\e\a]}{}g;
+
+    print("\e]0;$title\a");
+}
+
 sub print_status_bar {
     my $msg = "";
 
@@ -529,10 +566,11 @@ sub print_status_bar {
 }
 
 sub redraw {
+    set_title();
     poll_terminal_size();
-    cls;
-    print_visible_lines;
-    print_status_bar;
+    cls();
+    print_visible_lines();
+    print_status_bar();
     $nav_err_msg = "";
 }
 
@@ -553,6 +591,8 @@ sub run_cmd {
         1 while chomp $command;
 
         my $command_line = "\$ $command";
+
+        set_title("running");
 
         print $command_line, "\n" if $quiet_opt;
 
@@ -597,6 +637,8 @@ sub run_cmd {
     waitpid($pid, 0);
 
     $command_result = $?;
+
+    set_title();
 
     return $command_result == 0;
 }

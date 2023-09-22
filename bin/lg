@@ -3,4 +3,4 @@
 set -Eeuo pipefail
 shopt -s nullglob
 
-git commit "$@"
+lazygit "$@"

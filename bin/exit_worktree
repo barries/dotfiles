@@ -12,7 +12,7 @@ if [[ -d $BRANCH_BUILD_DIR ]]; then
     rm -rf $BRANCH_BUILD_DIR
 fi
 
-cd $MAIN_WORKTREE/Station/Source
+cd $MAIN_WORKTREE
 
 git worktree remove $WORKTREE
 
@@ -20,7 +20,7 @@ if [[ -z "${TMUX-}" ]]; then
     echo
     echo "exit     # to leave the shell (and probably close your connection)"
     echo
-    echo "cd ~     # to leave the dessicated husk of the $WORKTREE"
+    echo "cd $MAIN_WORKTREE # to leave the dessicated husk of the $WORKTREE"
     echo
 else
     tmux kill-window

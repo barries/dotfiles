@@ -250,7 +250,7 @@ for (`git for-each-ref --sort=committerdate @ARGV`) {
     push @$heads, $commit
         unless grep $_ == $commit, @$heads;
 
-    if ($ref =~ m{refs/remotes/(.*?)}) {
+    if ($ref =~ m{refs/remotes/([^/]*)}) {
         $commit->{has_remote_ref}  = 1;
         $commit->{ref_repos}->{$1} = 1;
         $commit->{branches}->{$branch->{branch_name}}->{$1} = 1;

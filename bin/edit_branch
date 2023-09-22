@@ -22,9 +22,7 @@ if [[ ! -d $WORKTREE ]]; then
     git worktree add $WORKTREE "$BRANCH_BASENAME"
 fi
 
-WORKTREE_SOURCE_DIR=$WORKTREE/Station/Source
-
-cd $WORKTREE_SOURCE_DIR
+cd $WORKTREE
 
 pull || true
 

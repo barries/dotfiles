@@ -21,7 +21,7 @@ if [[ ! -d $WORKTREE ]]; then
     git worktree add -b $BRANCH_NAME $WORKTREE
 fi
 
-cd $WORKTREE/Station/Source
+cd $WORKTREE
 
 pull || true
 
