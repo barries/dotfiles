@@ -3,4 +3,4 @@
 set -Eeuo pipefail
 shopt -s nullglob
 
-lazygit "$@"
+exec lazygit "$@"
