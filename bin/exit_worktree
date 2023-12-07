@@ -6,21 +6,16 @@ shopt -s nullglob
 WORKTREE=`git rev-parse --show-toplevel`
 MAIN_WORKTREE=`git worktree list | head -n 1 | awk '{ print $1 }'`
 BRANCH_BASENAME="${WORKTREE##*/}"
-BRANCH_BUILD_DIR=~/iv_make/$BRANCH_BASENAME
 
-if [[ -d $BRANCH_BUILD_DIR ]]; then
-    rm -rf $BRANCH_BUILD_DIR
-fi
+cd "$MAIN_WORKTREE"
 
-cd $MAIN_WORKTREE
-
-git worktree remove $WORKTREE
+git worktree remove "$WORKTREE"
 
 if [[ -z "${TMUX-}" ]]; then
     echo
     echo "exit     # to leave the shell (and probably close your connection)"
     echo
-    echo "cd $MAIN_WORKTREE # to leave the dessicated husk of the $WORKTREE"
+    echo "cd \"$MAIN_WORKTREE\" # to leave the dessicated husk of the $WORKTREE"
     echo
 else
     tmux kill-window

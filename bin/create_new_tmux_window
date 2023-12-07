@@ -5,17 +5,17 @@ shopt -s nullglob
 
 TMPFILE=$(mktemp /tmp/create_new_tmux_window.rcfile.XXXXXX)
 
-cat <<RCFILE > $TMPFILE
-rm $TMPFILE
+cat <<RCFILE > "$TMPFILE"
+rm "$TMPFILE"
 . ~/.profile
 RCFILE
 
-NAME=$1
+NAME="$1"
 shift
 
-printf "%q " bash "$@" >> $TMPFILE
-echo                   >> $TMPFILE
+printf "%q " bash "$@" >> "$TMPFILE"
+echo                   >> "$TMPFILE"
 
-cat $TMPFILE
+cat "$TMPFILE"
 
 tmux new-window -n "$NAME"

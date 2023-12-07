@@ -212,6 +212,8 @@ end
 set diffopt+=algorithm:histogram " histogram: better performance than patience or myers
 set diffopt+=indent-heuristic    " indent-heuristic: better context vs. content differentiation, apparently
 set diffopt+=context:3           " 3: allow more diffs to be seen than the default (6)
+set diffopt+=linematch:100       " align similar lines; 100: allow a reasonable hunk size (for now)
+set diffopt+=vertical            " so :diffsplit does a vertical split
 
 set foldopen-=hor                " hor: horizonal movement
 
@@ -268,25 +270,12 @@ set listchars=tab:→\ ,trail:·,extends:»,precedes:«,nbsp:☠
 set showbreak=»
 set linebreak
 
-" Display unprintables as <00> hex codes rather than ^@ control codes
-set display+=uhex
+set display+=uhex     " Display unprintables as <00> hex codes rather than ^@ control codes
+set display+=lastline " Display partial last line
 
-" Display partial last line
-set display+=lastline
+set hlsearch          " highlight search terms
 
-" Can't redefing a function that a timer ever used, apparently.
-if !exists("g:timer")
-    function! MyChecktime(timer)
-        try
-            checktime
-        endtry
-    endfunction
-
-    "let g:timer = timer_start(1000, 'MyChecktime', {'repeat': -1})
-endif
-
-"set colorcolumn=81 " colorize column 81
-set hlsearch       " highlight search terms
+set completeopt=longest,menuone " longest: add longest common text, then show menu even if only one option, to show source of option
 
 " State files
 set dir=~/tmp/vim//
@@ -299,6 +288,7 @@ set spellfile=~/.vim/spellfile.en.add
 
 set mouse=a
 
+set updatetime=250 " Decrease swap file update (flush) time
 set ttimeoutlen=10 " Make <ESC> out of insert mode fast
 
 set nowrap        " don't wrap lines
@@ -492,24 +482,6 @@ vmap    <leader>r "zy:%s/<c-R>z//g<Left><Left>
 map     <leader>R :windo %s/\<<c-R><c-W>\>//g<Left><Left>
 vmap    <leader>R "zy:windo %s/<c-R>z//g<Left><Left>
 
-" <leader>w: select window by name
-map     <expr> <leader>w SelectWindowByName()
-
-if has("nvim")
-    map      <silent> <F10> :lua show_hl_captures()<CR>
-    xnoremap <silent> <F10> :lua enumerate_visual_nodes()<CR>
-
-    nnoremap          +     :lua grow_visual_region()<CR>
-    nnoremap          <M-v> :lua grow_visual_region()<CR>
-    nnoremap          -     :echo "Not in visual mode"<CR>
-    xnoremap <silent> +     :lua grow_visual_region("is_visual_mode")<CR>
-    xnoremap <silent> <M-v> :lua grow_visual_region("is_visual_mode")<CR>
-    xnoremap <silent> -     :lua undo_grow_visual_region()<CR>
-
-    silent! unmap <M-v> " TODO: remove
-    silent! unmap v     " TODO: remove
-endif
-
 " Searching
 set noignorecase  " don't ignore case when searching
 set nosmartcase   " don't ignore case if search pattern is all lowercase, case-sensitive otherwise
@@ -518,17 +490,6 @@ if &diff
     map <leader>H VxnVnx
     map <leader>O VnxknVx
 endif
-
-function! SelectWindowByName()
-    let pattern = input('Window? ')
-    let winnr = bufwinnr(pattern)
-    if winnr <= 0
-        redraw
-        echoerr('Window ' . pattern . ' not found')
-    else
-        exe winnr . "wincmd w"
-    endif
-endfunction
 
 " <F4>: sync with filesystem: load & save changes
 map     <silent> <F4> :checktime<CR>:wa<CR>:diffupdate<CR>
@@ -1070,7 +1031,6 @@ let l:nav_axes = [
     \[ 'braces',      ['gg{', 'gg}'       ], ['{',     '}',     ], ['[{',    ']}'   ] ],
     \
     \[ 'window',      [       '<C-w><C-w>'], [                  ], [                ] ],
-    \[ 'window',      [              'gw' ], [                  ], [                ] ],
     \[ 'window',      [              'ggw'], ['',      '',      ], [                ],
     \   ['E',            ':E '                         ],
     \   ['H',            '<C-w>H'                      ],

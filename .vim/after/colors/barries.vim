@@ -15,6 +15,8 @@ hi NormalFloat ctermbg=Grey   guibg=#A8A8A8  ctermfg=Black  guifg=#000000 " Have
 hi EndOfBuffer ctermfg=021    guifg=#0000ff  ctermbg=Black  guibg=#000000 " tildes after last line in buffer
 hi Visual      ctermbg=022    guibg=#005f00
 
+hi SignColumn guibg=#202020
+
 " Avoiding setting ctermfg because it breaks syntax highlighting
 hi FocusedNormal        ctermbg=Black  guibg=#000000
 hi FocusedEndOfBuffer   ctermfg=021    guifg=#0000ff  ctermbg=Black  guibg=#000000
