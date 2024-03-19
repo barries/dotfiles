@@ -339,7 +339,7 @@ mason_lspconfig.setup_handlers {
       filetypes = (servers[server_name] or {}).filetypes,
     }
   end
-}
+};
 
 --------------------------------------------------------------------------------
 require('neodev').setup()
@@ -348,10 +348,10 @@ require('neodev').setup()
 -- nvim-cmp
 -- See `:help cmp`
 
-local cmp = require 'cmp'
-local luasnip = require 'luasnip'
-require('luasnip.loaders.from_vscode').lazy_load()
-luasnip.config.setup {}
+local cmp = require 'cmp';
+local luasnip = require 'luasnip';
+require('luasnip.loaders.from_vscode').lazy_load();
+luasnip.config.setup {};
 
 cmp.setup {
   snippet = {
@@ -360,29 +360,23 @@ cmp.setup {
     end,
   },
   mapping = cmp.mapping.preset.insert {
-    ['<C-n>'] = function (fallback)
+    ['<C-n>'] = cmp.mapping(function (fallback)
       if cmp.visible() then
-        cmp.mapping.select_next_item();
+        cmp.select_next_item();
       else
         fallback(); -- vim's builtin functionality is very nice at times
       end
-    end,
-    ['<C-p>'] = function (fallback)
+    end),
+    ['<C-p>'] = cmp.mapping(function (fallback)
       if cmp.visible() then
-        cmp.mapping.select_prev_item();
+        cmp.select_prev_item();
       else
         fallback(); -- vim's builtin functionality is very nice at times
       end
-    end,
+    end),
     ['<C-d>'] = cmp.mapping.scroll_docs(-4),
     ['<C-f>'] = cmp.mapping.scroll_docs(4),
-    ['<C-Space>'] = function ()
-      if cmp.visible() then
-        cmp.mapping.complete {};
-      else
-        cmp.open_docs();
-      end
-    end,
+    ['<C-Space>'] = cmp.mapping.complete {},
     ['<CR>'] = cmp.mapping.confirm {
       behavior = cmp.ConfirmBehavior.Replace,
       select = true,

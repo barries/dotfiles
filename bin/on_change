@@ -101,7 +101,7 @@ my @cmd;
 my $ON_CHANGE_DIR = $ENV{ON_CHANGE_DIR} // "$ENV{HOME}/tmp";
 
 my @watch_paths;
-while (@ARGV && -d $ARGV[0]) {
+while (@ARGV && (-f $ARGV[0] && !-x _) || -d _) {
     push @watch_paths, shift @ARGV;
 }
 
