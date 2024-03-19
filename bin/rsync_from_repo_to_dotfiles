@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+shopt -s nullglob
+
+BACKUP_DIR=$HOME/tmp/dotfiles.bak/
+
+set -x
+
+[ -e $BACKUP_DIR ] || mkdir -p $BACKUP_DIR 
+
+rsync --backup --exclude=git_utils --backup-dir=$BACKUP_DIR -v -rlptD --exclude=.git /home/dev/dotfiles/ /home/dev
