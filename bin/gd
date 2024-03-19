@@ -3,4 +3,16 @@
 set -eo pipefail
 shopt -s nullglob
 
-git diff "$@"
+args=()
+single_commit_re='^=(.*)'
+
+for arg in "$@"; do
+    echo $arg
+    if [[ $arg =~ $single_commit_re ]]; then
+        args+=("${BASH_REMATCH[1]}^..${BASH_REMATCH[1]}")
+    else
+        args+=("$arg")
+    fi
+done
+
+git diff "${args[@]}"
