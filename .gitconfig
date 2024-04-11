@@ -1,6 +1,6 @@
 [diff]
 	tool = vimdiff
-	algorithm = histogram
+	algorithm = patience
 
 [merge]
 	tool = vimdiff
@@ -30,3 +30,5 @@
 	process = git-lfs filter-process
 	required = true
 	clean = git-lfs clean -- %f
+[rebase]
+	updateRefs = true
