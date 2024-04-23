@@ -197,7 +197,7 @@ sub branch {
 
     $branch->{refs}->{$ref} = 1;
 
-    $branch->{is_release_branch} ||= $branch_name =~ /^\d+(?:\.\d+){1,3}$/;
+    $branch->{is_release_branch} ||= $branch_name =~ /^\d+\.\d/;
 
     return $branch;
 }
