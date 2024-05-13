@@ -21,11 +21,13 @@ use Term::ReadKey;
 use Time::HiRes    qw(sleep);
 
 use constant {
-    MIN_NUM_SKIPPED        =>  3, # Don't hide chunks <= this number
-    NUM_LINES_BEFORE_CLEAR =>  0, # Number of lines to be captured before clear()ing
     MIN_READKEY_TIMEOUT    =>  0.01, # 0.01: Be very responsive when poll_terminal_size()
     MAX_READKEY_TIMEOUT    =>  0.1,  # 0.1: Once user stops changing things, reduce CPU%
+    IS_ON_WINDOWS          => ($^O =~ /Win/ ? 1 : 0),
 };
+
+my $sep    = IS_ON_WINDOWS ?   "\\" :   "/";
+my $sep_re = IS_ON_WINDOWS ? qr{\\} : qr{/};
 
 use constant ERROR_SEARCH_PATTERN => "^(?:error|ERROR)[^a-zA-Z_]|\\b(?:error|ERROR):|\\b(?i:failure|failed|segmentation fault|SEGFAULT|TestFailure)\\b/";
 
@@ -39,54 +41,72 @@ sub usage {
     exit shift;
 }
 
-=HEAD1 Name
+=head1 Name
 
 on_change - run a command and re-run it when files change
 
-=HEAD2 SYNOPSIS
+=head2 SYNOPSIS
 
-    on_change [<dirs_to_watch] [<options>] ...command...
-    on_change [<dirs_to_watch] [<options>] '...command...'
+    on_change [<watch_spec>*] [<options>] ...command...
+    on_change [<watch_spec>*] [<options>] '...command...'
 
     on_change ... -c command
     on_change ... <command_string>  # Will launch "bash -c <command_string>"
     on_change ... ...command...
 
+Each <watch_spec> may be:
+
+=over
+
+=item * A string starting with C<!>, to exclude paths containing names that match the pattern.
+
+=item * A string containing a wildcard (C<*>, C<?>, C<**>, or C<??>).
+
+=item * A string ending in a slash (OS dependant).
+
+=item * A existing directory.
+
+=item * An existing non-executable file.
+
+=back
+
+Use C<-w> to watch executable files. Use C<--> before the executable name to
+run a program that looks like a C<< <watch_spec> >>. Providing any C<<
+<watch_spec>>s overrides the C<ON_CHANGE_WATCH> environment variable.
+
 Options:
 
     -R                              Strip escape codes (i.e. decolorize). This
-                                    is inspired by less's -R. This can also be
+                                    is inspired by C<less>'s C<-R>. This can also be
                                     typed inside the tool to toggle colorization
                                     on and off.
 
-    -c, --command <command_line>    Spawn bash -c <command_line>.
+    -c, --command <command_line>    Spawn C<< bash -c <command_line> >>.
 
-    -h, --help                      (this help text)
+    -h, --help                      Print this help text.
 
-    -l <log_file>                   Log raw text (with escape codes) to <log_file> (defaults to ~/tmp/on_change.log)
+    -l <log_file>                   Log raw text (with escape codes) to C<< <log_file> >>
+                                    (defaults to C<~/tmp/on_change.log>).
 
-    -o, --output <filename>         Log de-escaped text to <filename> (defaults to ~/tmp/on_change.txt)
+    -o, --output <filename>         Log de-escaped text to C<< <filename> >>
+                                    (defaults to C<~/tmp/on_change.txt>).
 
-    -q, --quiet                     Don't emit in-process output to screen
+    -q, --quiet                     Don't emit in-process output to screen.
 
-    -w, --watch <path>              Watch <path> for changes. If path is a dir,
-                                    watch all files and dirs in it. Can specify
-                                    multiple times for multiple <path>s.
-                                    Overrides ON_CHANGE_WATCH.
+    -w <watch_spec>, --watch <watch_spec>    Watch C<< <watch_spec> >>.
 
-    -x, --exit                      Exit once command succeeds
+    -x, --exit                      Exit once command succeeds.
 
 (use the 'h' key when running to see interactive commands)
 
 Environment Variables:
 
-    ON_CHANGE_WATCH=<paths>   A semicolon separated list of paths to
-                              watch if no -w options are supplied on the
-                              command line.
+    ON_CHANGE_WATCH=<watch_specs>   A semicolon separated list of paths to
+                                    watch if no -w options are supplied on the
+                                    command line.
 
-    ON_CHANGE_DIR=<dir>       The directory to place on_change* working files.
-
-                              Defaults to ~/tmp/
+    ON_CHANGE_DIR=<dir>             The directory to place on_change* working files
+                                    (defaults to ~/tmp/).
 
 $ON_CHANGE_DIR Files:
 
@@ -100,9 +120,18 @@ my @cmd;
 
 my $ON_CHANGE_DIR = $ENV{ON_CHANGE_DIR} // "$ENV{HOME}/tmp";
 
-my @watch_paths;
-while (@ARGV && (-f $ARGV[0] && !-x _) || -d _) {
-    push @watch_paths, shift @ARGV;
+sub is_watch_spec {
+    local $_ = shift;
+    return /^!|$sep_re$/
+        || -d $ARGV[0]
+        || (-f _ && !-x _);
+}
+
+my @watch_specs;
+while (@ARGV && is_watch_spec($ARGV[0])) {
+    my $arg = shift @ARGV;
+    last if $arg eq "--";
+    push @watch_specs, $arg;
 }
 
 GetOptions(
@@ -110,12 +139,13 @@ GetOptions(
         die "multiple -$_[0] not allowed\n" if @cmd;
         @cmd = ($_[1]);
     },
+    "i|ignore=s"          => sub { push @watch_specs, "!$_[1]"; },
     "l|log-file=s"        => \(my $log_file_opt = "$ON_CHANGE_DIR/on_change.log"),
     "o|output=s"          => \(my $output_opt   = "$ON_CHANGE_DIR/on_change.txt"),
     "q|quiet"             => \my $quiet_opt,
-    "x|exit"              => \my $exit_opt,
     "R|RAW-CONTROL-CHARS" => \my $RAW_opt,
-    "w|watch=s"           => \@watch_paths,
+    "x|exit"              => \my $exit_opt,
+    "w|watch=s"           => \@watch_specs,
 ) or usage(1);
 
 if (@ARGV) {
@@ -127,8 +157,44 @@ if (@ARGV) {
 }
 
 my $command_fn = "$ON_CHANGE_DIR/on_change_command.txt";
-@watch_paths = split /;/, ($ENV{ON_CHANGE_WATCH} // "") unless @watch_paths;
-@watch_paths = (".") unless @watch_paths;
+@watch_specs = split /;/, ($ENV{ON_CHANGE_WATCH} // "") unless @watch_specs;
+
+my @watch_paths;
+my @exclude_res;
+{
+    my @exclude_specs;
+
+    for (splice @watch_specs) {
+        my ($invert, $watch_spec) = /^(!?)(.*)$/s;
+        if (!$invert) {
+            push @watch_specs, $watch_spec;
+            push @watch_paths, glob $watch_spec;
+        }
+        else {
+            push @exclude_specs, $_;
+            my $re = join("",
+                map {
+                    $_ eq "\\" ?                 "\\\\"               :
+                    $_ eq "**" ?                 ".*"                 :
+                    $_ eq "??" ?                 "."                  :
+                    $_ eq "*"  ? IS_ON_WINDOWS ? "[^\\\\]*" : "[^/]*" :
+                    $_ eq "?"  ? IS_ON_WINDOWS ? "[^\\\\]"  : "[^/]"  :
+                                                 $_;
+                } split /(\*\*|\?\?|\*|\?|\\)/, $watch_spec
+            );
+            push @exclude_res, qr{(?:^|$sep_re)$re(?:$sep_re|$)};
+        }
+    }
+
+    push @watch_specs, @exclude_specs;  # Show last to communicate order of application
+}
+
+if (!@watch_paths) {
+    @watch_paths = ('.');
+    if (@watch_specs) {
+        unshift @watch_specs, '.';
+    }
+}
 
 usage(1) unless @cmd;
 
@@ -192,17 +258,16 @@ my %fingerprints;
 
 my @changed;
 
-sub fingerprints {
+sub compute_fingerprint {
     my $fingerprint = 0;
 
     my %prev = %fingerprints;
 
-    # Integer overflow here is ok.
-
     find {
         no_chdir => 1,
         wanted => sub {
-            if (m{/cg\b|/CodeGen\b|/\.|\A\.[^/.]}) {
+            my $fn = $_;
+            if (grep $fn =~ $_, @exclude_res) {
                 $File::Find::prune = 1;
                 return;
             }
@@ -215,17 +280,16 @@ sub fingerprints {
                     push @changed, $fn if $fingerprints{$fn};
                     $fingerprints{$fn} = $f;
                 }
-                $fingerprint += $f;
+                $fingerprint += $f; # Integer overflow here is expected.
             }
         }
-    },
-    map glob, @_;
+    }, @watch_paths;
 
     return $fingerprint;
 }
 
 sub cls {
-    if ($^O =~ /Win/) {
+    if (IS_ON_WINDOWS) {
         system "cls";
     }
     else {
@@ -481,9 +545,6 @@ sub save_line {
     print $line unless $quiet_opt || @lines >= $term_lines;
 }
 
-sub format_result_code {
-}
-
 sub set_title {
     my @add_ons = (
         @_,
@@ -504,7 +565,7 @@ sub set_title {
         $prog_name,
         $exit_opt  ? "-x " : (),
         $quiet_opt ? "-q " : (),
-        map("-w " . shellquote($_), @watch_paths),
+        map("-w " . shellquote($_), @watch_specs),
         shellquote($command),
         @add_ons ? ("   # ", @add_ons) : ()
     );
@@ -540,8 +601,8 @@ sub print_status_bar {
 
     $msg .= $location_desc;
 
-    $msg .= ", watching " . join(" ", @watch_paths)
-        if @watch_paths != 1 || ($watch_paths[0] // "") ne ".";
+    $msg .= " " . join(" ", map "-w " . shellquote($_), @watch_specs)
+        if @watch_specs > 1 || ($watch_specs[0] // "") ne ".";
 
     if (length $search_pattern) {
         $msg .= " " . (defined $search_match_line ? "" : $ORANGE) . $search_pattern . $COLOR;
@@ -576,7 +637,7 @@ sub redraw {
 
 sub readkey {
     my ($timeout_) = @_;
-    $timeout_ //= $^O =~ /Win/ ? 1 : $timeout;
+    $timeout_ //= IS_ON_WINDOWS ? 1 : $timeout;
 
     ReadMode(4);
     return ReadKey($timeout_) // "";
@@ -676,7 +737,7 @@ sub ask {
 
 write_command_file();
 
-my $fingerprint = fingerprints(@watch_paths);
+my $fingerprint = compute_fingerprint();
 
 my $is_first = 1;
 my $fingerprint_changed_during_command = 0;
@@ -761,7 +822,7 @@ while (1) {
     my $prev_fingerprints = $fingerprint;
 
     $fingerprint_changed_during_command = 1;
-    while (($fingerprint = fingerprints(@watch_paths)) == $prev_fingerprints) {
+    while (($fingerprint = compute_fingerprint()) == $prev_fingerprints) {
         $fingerprint_changed_during_command = 0;
         my $key = readkey;
 
