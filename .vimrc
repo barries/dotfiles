@@ -1199,6 +1199,8 @@ if has("nvim")
             au!
             au ColorScheme          * hi link InactiveWin ColorColumn | hi link NormalWin Normal
             au FileType,BufWinEnter * call s:configure_winhighlight()
+            au WinEnter             * setlocal winhl-=WinSeparator:WinSeparatorNC
+            au WinLeave             * setlocal winhl+=WinSeparator:WinSeparatorNC
             au FocusGained          * hi link NormalWin Normal
             au FocusLost            * hi link NormalWin InactiveWin
         augroup END

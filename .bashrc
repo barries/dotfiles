@@ -121,3 +121,4 @@ if ! shopt -oq posix; then
 fi
 [ -f ~/.fzf.bash ] && source ~/.fzf.bash
 
+export FZF_DEFAULT_OPTS="--walker-skip .jj,.git,.vscode,node_modules,target,Debug"

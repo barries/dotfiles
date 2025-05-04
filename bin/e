@@ -7,7 +7,7 @@ EDITOR=${EDITOR:=nvim}
 
 VIM_OPTIONS=
 
-if [[ $# -ne 0 && $EDITOR == *"vim"* && $1 != "-d" && $1 != "-p" && $1 != "-" ]]; then
+if [[ $# -ne 0 && $EDITOR == *"vim"* && $1 != "-d" && $1 != "-p" ]]; then
     VIM_OPTIONS="-O "
 fi
 

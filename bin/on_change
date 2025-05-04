@@ -122,18 +122,18 @@ my $ON_CHANGE_DIR = $ENV{ON_CHANGE_DIR} // "$ENV{HOME}/tmp";
 
 sub is_watch_spec {
     local $_ = shift;
-    return /^!|$sep_re$/
-        || -d $ARGV[0]
-        || (-f _ && !-x _);
+    return /^!/
+        || -d $_
+        || (-f _ && !-x _)
+        || (!/[:;\s]/ && /$sep_re/);
 }
 
 my @watch_specs;
-while (@ARGV && is_watch_spec($ARGV[0])) {
-    my $arg = shift @ARGV;
-    last if $arg eq "--";
-    push @watch_specs, $arg;
-}
 
+my @bare_cmd;
+Getopt::Long::Configure(
+    "permute", # Allow "<>", among other things
+);
 GetOptions(
     "c|command=s"   => sub {
         die "multiple -$_[0] not allowed\n" if @cmd;
@@ -146,15 +146,21 @@ GetOptions(
     "R|RAW-CONTROL-CHARS" => \my $RAW_opt,
     "x|exit"              => \my $exit_opt,
     "w|watch=s"           => \@watch_specs,
+    "<>"                  => sub {
+        my $arg = shift;
+
+        if (is_watch_spec $arg) {
+            push @watch_specs, $arg;
+        } else {
+            push @bare_cmd, ($arg, splice @ARGV);  # First non-watchspec is the first command arg
+        }
+    },
 ) or usage(1);
 
-if (@ARGV) {
-    if (@cmd) {
-        die "-c and command line both provided";
-    }
-
-    @cmd = @ARGV;
+if ((@cmd ? 1 : 0) + (@bare_cmd ? 1 : 0) + (@ARGV ? 1 : 0) > 1) {
+    die "$prog_name: error: multiple commands specified (some combinatin of -c, --, and non-watch spec args)\n";
 }
+@cmd = (@cmd, @bare_cmd, @ARGV);
 
 my $command_fn = "$ON_CHANGE_DIR/on_change_command.txt";
 @watch_specs = split /;/, ($ENV{ON_CHANGE_WATCH} // "") unless @watch_specs;

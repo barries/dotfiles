@@ -1,6 +1,6 @@
 [diff]
 	tool = vimdiff
-	algorithm = patience
+	algorithm = histogram
 
 [merge]
 	tool = vimdiff

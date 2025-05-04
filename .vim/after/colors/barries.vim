@@ -38,7 +38,7 @@ hi Typedef    cterm=bold  gui=bold  ctermfg=195     guifg=#dfffff
 
 hi cppSTLfunction ctermfg=159      guifg=#afffff
 hi cCustomClass   ctermfg=255      guifg=#eeeeee
-hi cCustomFunc    ctermfg=Blue     guifg=#0000ff
+hi cCustomFunc    ctermfg=Blue     guifg=#4378ff
 hi cppAccess      cterm=underline  gui=underline  ctermfg=195  guifg=#dfffff
 
 hi TSConstructor  ctermfg=White  guifg=#ffffff " treesitter weirdly places a constructor attr on the RHS of -> method calls
@@ -83,9 +83,16 @@ hi User9                cterm=NONE     gui=NONE       ctermfg=240    guifg=#5858
 hi StatusLineSelected   ctermfg=Black  guifg=#000000  ctermbg=118    guibg=#87ff00
 hi StatusLineUnselected ctermfg=Black  guifg=#000000  ctermbg=246    guibg=#949494
 
-hi StatusLine   cterm=NONE     gui=NONE       ctermfg=Black  guifg=#000000  ctermbg=118  guibg=#87ff00
-hi VertSplit    ctermfg=Black  guifg=#000000  ctermbg=246    guibg=#949494
-hi StatusLineNC cterm=NONE     gui=NONE       ctermfg=Black  guifg=#000000  ctermbg=246  guibg=#949494
+hi StatusLine     cterm=NONE     gui=NONE       ctermfg=Black  guifg=#000000  ctermbg=118  guibg=#87ff00
+hi WinSeparator   cterm=NONE     gui=NONE       ctermfg=Black  guifg=#000000  ctermbg=118  guibg=#87ff00
+hi WinSeparatorNC cterm=NONE     gui=NONE       ctermfg=Black  guifg=#000000  ctermbg=118  guibg=#949494
+hi StatusLineNC   cterm=NONE     gui=NONE       ctermfg=Black  guifg=#000000  ctermbg=246  guibg=#949494
 
 hi Folded       cterm=NONE gui=NONE  ctermfg=246 guifg=#949494   ctermbg=236 guibg=#303030
+
+" folke/which-key
+
+hi WhichKeyNormal guifg=#ffffff guibg=#1c1c1c
+hi WhichKeyBorder guifg=#87ff00 guibg=#1c1c1c
+hi WhichKey       gui=bold guifg=#87ff00
 
